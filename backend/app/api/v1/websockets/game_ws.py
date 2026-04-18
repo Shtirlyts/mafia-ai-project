@@ -4,10 +4,22 @@ import asyncio
 from datetime import datetime
 import json
 from typing import Any, Dict
+from pydantic import ValidationError
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from app.services.game.engine import MafiaEngine, GamePhase, Role, Player
 from app.services.ai.agent import MafiaAIAgent
 from app.services.game.room_manager import room_manager, GameMode
+from app.services.game.game_service import GameServiceError, start_game as start_game_service
+from app.schemas.ws_messages import (
+    WSChatMessage,
+    WSGetStateMessage,
+    WSNightActionMessage,
+    WSNightChatMessage,
+    WSPingMessage,
+    WSStartGameMessage,
+    WSVoteMessage,
+    parse_ws_message,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -137,10 +149,17 @@ async def run_game_loop(room_code: str, engine: MafiaEngine) -> None:
     """Фоновый цикл игры: переключение фаз по таймеру."""
     try:
         while engine.current_phase != GamePhase.GAME_OVER:
+            settings = room_manager.get_settings(room_code)
             phase_durations = {
-                GamePhase.NIGHT: 20,
-                GamePhase.DAY: 60,
-                GamePhase.VOTING: 30,
+                GamePhase.NIGHT: (
+                    settings.night_duration_seconds if settings else 20
+                ),
+                GamePhase.DAY: (
+                    settings.day_duration_seconds if settings else 60
+                ),
+                GamePhase.VOTING: (
+                    settings.voting_duration_seconds if settings else 30
+                ),
                 GamePhase.LOBBY: 0,
                 GamePhase.GAME_OVER: 0
             }
@@ -283,7 +302,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
             data = await websocket.receive_text()
             try:
                 message = json.loads(data)
-                msg_type = message.get("type")
+                ws_message = parse_ws_message(message)
+                msg_type = ws_message.type
 
                 # Наблюдатели не могут отправлять игровые действия
                 if is_observer and msg_type not in ("get_state", "ping"):
@@ -297,8 +317,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                         await websocket.send_json({"type": "error", "message": "You are dead or not a player"})
                         continue
 
-                if msg_type == "chat":
-                    text = message.get("text", "").strip()
+                if isinstance(ws_message, WSChatMessage):
+                    text = ws_message.text.strip()
                     if (
                         text
                         and player is not None
@@ -314,8 +334,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                             "phase": engine.current_phase.value
                         })
 
-                elif msg_type == "vote":
-                    target_id = message.get("target_id")
+                elif isinstance(ws_message, WSVoteMessage):
+                    target_id = ws_message.target_id
                     if target_id and engine.current_phase == GamePhase.VOTING:
                         if engine.submit_vote(client_id, target_id):
                             await manager.broadcast(room_code, {
@@ -329,8 +349,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                             if len(engine.votes) >= alive_count:
                                 if room_code in room_tasks:
                                     room_tasks[room_code].cancel()
-                elif msg_type == "night_chat":
-                    text = message.get("text", "").strip()
+                elif isinstance(ws_message, WSNightChatMessage):
+                    text = ws_message.text.strip()
                     if (
                         text
                         and player is not None
@@ -346,9 +366,9 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                             "text": text,
                             "timestamp": datetime.now().isoformat()
                         })
-                elif msg_type == "night_action":
-                    action = message.get("action")
-                    target_id = message.get("target_id")
+                elif isinstance(ws_message, WSNightActionMessage):
+                    action = ws_message.action
+                    target_id = ws_message.target_id
                     if (
                         target_id
                         and player is not None
@@ -375,56 +395,19 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                                     "message": "Cannot save yourself twice in a row"
                                 })
 
-                elif msg_type == "start_game":
-                    # Только хост (и не наблюдатель? Хост может быть наблюдателем в AI_ONLY)
-                    if room_manager.is_host(room_code, client_id):
-                        if engine.current_phase == GamePhase.LOBBY:
-                            # Проверяем режим и добавляем AI при необходимости (дублируем логику из REST, но оставим)
-                            settings = room_manager.get_settings(room_code)
-                            if settings is None:
-                                await websocket.send_json({"type": "error", "message": "Room settings not found"})
-                                continue
-                            human_players = [
-                                p for p in engine.players.values() if not p.is_ai]
+                elif isinstance(ws_message, WSStartGameMessage):
+                    try:
+                        engine, phase = await start_game_service(room_code, client_id)
+                    except GameServiceError as e:
+                        await websocket.send_json({"type": "error", "message": e.message})
+                        continue
 
-                            if settings.mode == GameMode.HUMANS_ONLY and len(human_players) < 5:
-                                await websocket.send_json({"type": "error", "message": "Need at least 5 human players"})
-                                continue
-                            elif settings.mode == GameMode.MIXED:
-                                target_ai = settings.ai_count if settings.ai_count is not None else max(
-                                    0, 5 - len(human_players))
-                                current_ai = sum(
-                                    1 for p in engine.players.values() if p.is_ai)
-                                needed_ai = target_ai - current_ai
-                                for i in range(needed_ai):
-                                    bot_id = f"bot_{i+1}_{room_code}"
-                                    bot_name = f"Bot_{i+1}"
-                                    engine.add_player(
-                                        Player(bot_id, bot_name, is_ai=True))
-                            elif settings.mode == GameMode.AI_ONLY:
-                                engine.players.clear()
-                                total_ai = max(5, settings.max_players)
-                                for i in range(total_ai):
-                                    bot_id = f"bot_{i+1}_{room_code}"
-                                    bot_name = f"Bot_{i+1}"
-                                    engine.add_player(
-                                        Player(bot_id, bot_name, is_ai=True))
+                    if phase == GamePhase.NIGHT:
+                        await process_ai_night_actions(room_code, engine)
+                    await broadcast_full_state(room_code, engine)
+                    await send_mafia_teammates(room_code, engine)
 
-                            engine.configure_roles(len(engine.players))
-                            engine.switch_phase()
-
-                            if room_code not in room_tasks:
-                                task = asyncio.create_task(
-                                    run_game_loop(room_code, engine))
-                                room_tasks[room_code] = task
-
-                            await process_ai_night_actions(room_code, engine)
-                            await broadcast_full_state(room_code, engine)
-                            await send_mafia_teammates(room_code, engine)
-                    else:
-                        await websocket.send_json({"type": "error", "message": "Only host can start the game"})
-
-                elif msg_type == "get_state":
+                elif isinstance(ws_message, WSGetStateMessage):
                     state = get_public_game_state(
                         engine, client_id, is_observer)
                     await websocket.send_json({
@@ -432,8 +415,13 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                         "data": state
                     })
 
+                elif isinstance(ws_message, WSPingMessage):
+                    await websocket.send_json({"type": "pong"})
+
             except json.JSONDecodeError:
                 await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+            except ValidationError:
+                await websocket.send_json({"type": "error", "message": "Invalid message payload"})
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
                 await websocket.send_json({"type": "error", "message": str(e)})
