@@ -73,10 +73,12 @@ mafia-ai-project/
 │   │   │   ├── ai/
 │   │   │   │   ├── agent.py             # Класс AI-агента (логика вызова LLM)
 │   │   │   │   ├── prompts.yaml         # Системные промпты для разных ролей
+│   │   │   │   ├── ai_service.py
 │   │   │   │   └── context_manager.py   # Сборка истории чата для подачи в AI
 │   │   │   └── game/
 │   │   │       ├── engine.py            # State Machine: смена фаз (Night/Day)
 │   │   │       └── logic.py             # Подсчет голосов, проверка условий победы
+│   │   │       └── room_manager.py      # Создания комнат и управление игроками
 │   │   └── main.py                      # Точка запуска (Uvicorn)
 │   ├── .env                             # Конфиденциальные данные
 │   ├── .gitignore
