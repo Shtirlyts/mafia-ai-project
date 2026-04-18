@@ -1,6 +1,7 @@
 # flake8: noqa
 # backend/app/api/v1/websockets/game_ws.py
 import asyncio
+from datetime import datetime
 import json
 from typing import Any, Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
@@ -77,31 +78,50 @@ def get_public_game_state(
     client_id: str,
     is_observer: bool = False,
 ) -> JSONDict:
-    """
-    Возвращает состояние игры для конкретного клиента.
-    Если это наблюдатель или игра окончена, показывает все роли.
-    Иначе скрывает роли других игроков.
-    """
-    show_all_roles = is_observer or (
-        engine.current_phase == GamePhase.GAME_OVER)
+    show_all_roles = is_observer or (engine.current_phase == GamePhase.GAME_OVER)
+    show_eliminated_role = (
+        engine.eliminated_player and 
+        engine.current_phase in (GamePhase.DAY, GamePhase.VOTING)
+    )
+
     players: list[JSONDict] = []
     for p in engine.players.values():
         player_dict: JSONDict = p.to_dict()
         if not show_all_roles and p.player_id != client_id:
             player_dict["role"] = "unknown"
-        players.append(player_dict)
+        if not show_all_roles:
+            player_dict["is_ai"] = None
 
-    # Для мафии можно добавить список сокомандников (передаётся отдельным полем или в личном сообщении)
-    # В этом примере не включаем в общее состояние, будем отправлять отдельно при старте или смене фазы
+        players.append(player_dict)
+    if show_eliminated_role and engine.eliminated_player:
+        for player_data in players:
+            if player_data["player_id"] == engine.eliminated_player.player_id:
+                player_data["role"] = engine.eliminated_player.role.value
+                break  # Роль убийцы раскрывать не нужно
+
+    player = engine.players.get(client_id)
+    is_mafia = player and player.is_alive and player.role == Role.MAFIA
+
+    visible_day_chat = (
+        engine.day_chat 
+        if engine.current_phase in (GamePhase.DAY, GamePhase.VOTING) 
+        else []
+    )
+    visible_night_chat = (
+        engine.night_chat 
+        if is_mafia and engine.current_phase == GamePhase.NIGHT 
+        else []
+    )
 
     return {
         "phase": engine.current_phase.value,
         "players": players,
         "winner": engine.get_winner() if engine.current_phase == GamePhase.GAME_OVER else None,
         "eliminated_player": engine.eliminated_player.player_id if engine.eliminated_player else None,
-        "vote_results": engine.vote_results
+        "vote_results": engine.vote_results,
+        "day_chat": visible_day_chat,
+        "night_chat": visible_night_chat,
     }
-
 
 async def send_mafia_teammates(room_code: str, engine: MafiaEngine):
     """Отправляет каждому мафиози список его сокомандников."""
@@ -309,7 +329,23 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                             if len(engine.votes) >= alive_count:
                                 if room_code in room_tasks:
                                     room_tasks[room_code].cancel()
-
+                elif msg_type == "night_chat":
+                    text = message.get("text", "").strip()
+                    if (
+                        text
+                        and player is not None
+                        and player.is_alive
+                        and player.role == Role.MAFIA
+                        and engine.current_phase == GamePhase.NIGHT
+                    ):
+                        engine.add_night_message(client_id, player.name, text)
+                        await manager.broadcast(room_code, {
+                            "type": "night_chat",
+                            "sender_id": client_id,
+                            "sender_name": player.name,
+                            "text": text,
+                            "timestamp": datetime.now().isoformat()
+                        })
                 elif msg_type == "night_action":
                     action = message.get("action")
                     target_id = message.get("target_id")

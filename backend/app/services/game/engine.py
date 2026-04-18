@@ -36,13 +36,19 @@ class Player:
         self.role = role
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        base = {
             "player_id": self.player_id,
             "name": self.name,
-            "is_ai": self.is_ai,
-            "role": self.role.value if self.role else None,
             "is_alive": self.is_alive
         }
+        if hasattr(self, '_reveal_all') and self._reveal_all:
+            base.update({
+                "role": self.role.value if self.role else None,
+                "is_ai": self.is_ai
+            })
+        else:
+            base["role"] = self.role.value if self.role else None
+        return base
 
 
 class MafiaEngine:
@@ -57,6 +63,10 @@ class MafiaEngine:
             "has_detective": True,
             "has_doctor": True,
         }
+
+        # Чаты
+        self.day_chat: list[dict] = []
+        self.night_chat: list[dict] = []
 
         # Ночные действия: мафия голосует (словарь voter_id -> target_id)
         self.mafia_votes: Dict[str, str] = {}
@@ -261,6 +271,15 @@ class MafiaEngine:
             self.doctor.last_saved_self = (
                 doctor_save == self.doctor.player_id)
 
+    def add_night_message(self, sender_id: str, sender_name: str, text: str):
+        """Добавить сообщение в ночной чат."""
+        self.night_chat.append({
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "text": text,
+            "timestamp": datetime.now().isoformat()
+        })
+    
     # Голосование днём
     def submit_vote(self, voter_id: str, target_id: str) -> bool:
         """Голосование на дневном голосовании."""
@@ -319,7 +338,9 @@ class MafiaEngine:
             "votes": self.votes,
             "vote_results": self.vote_results,
             "eliminated_player": self.eliminated_player.to_dict() if self.eliminated_player else None,
-            "winner": self.get_winner() if self.current_phase == GamePhase.GAME_OVER else None
+            "winner": self.get_winner() if self.current_phase == GamePhase.GAME_OVER else None,
+            "day_chat": self.day_chat,
+            "night_chat": self.night_chat
         }
 
 
