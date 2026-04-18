@@ -1,116 +1,80 @@
-# fastapi-react-websocket-app :globe_with_meridians:
-A simple Web Application built with FastAPI, React and Websocket. This project was created to consolidate my learning in these technologies and gain confidence in using them for more complex software.
+# Mafia AI — Игра в «Мафию» с AI-агентами 🎭🤖
 
-## :rocket: Getting started
-### Prerequisites
-- Git
-- Python 3.9+
-- Docker (recommended)
-- Node.js
+Веб-приложение для игры в классическую «Мафию», где игроки-люди сражаются вместе (или против) AI-агентов. Проект создан на базе FastAPI, React и WebSockets.
 
-### Clone this repo
-
-```bash
-git clone https://github.com/GabrielReira/fastapi-react-websocket-app.git
-cd fastapi-react-websocket-app
-```
+## 🚀 Стек технологий
+- **Backend:** Python 3.10+, FastAPI, WebSockets.
+- **AI:** GigaCode API / GigaChat для управления поведением агентов.
+- **Frontend:** React, TypeScript, Tailwind CSS, Zustand (state management).
+- **Database:** SQLite (для хранения логов игр и профилей).
 
 ---
 
-## :hammer_and_wrench: Running the project
+## 🛠 Запуск проекта
 
-### :whale: Running entire project using Docker Compose
-To run both the backend and frontend, use the single command bellow that will build and start all services:
+### Предварительные требования
+- Python 3.9+
+- Node.js & npm
+- Docker (рекомендуется)
+
+### Клонирование репозитория
+```bash
+git clone [https://github.com/GabrielReira/fastapi-react-websocket-app.git](https://github.com/GabrielReira/fastapi-react-websocket-app.git)
+cd fastapi-react-websocket-app
+```
+
+### 🐳 Запуск через Docker Compose
+Самый быстрый способ поднять весь проект одной командой:
 ```bash
 docker-compose up --build
 ```
 
-### :computer: Running backend independently
-You can also run the backend service separately, either with or without Docker.
+### 💻 Локальный запуск (Backend)
+1. Перейдите в папку бэкенда: `cd backend`
+2. Создайте виртуальное окружение: `python -m venv venv`
+3. Активируйте его:
+   - Linux/Mac: `source venv/bin/activate`
+   - Windows: `venv\Scripts\activate`
+4. Установите зависимости: `pip install -r requirements.txt`
+5. Запустите сервер: `uvicorn app.main:app --reload`
 
-#### Running backend with Docker
-1. Go to backend folder
-```bash
-cd backend
+### 🎨 Локальный запуск (Frontend)
+1. Перейдите в папку фронтенда: `cd frontend`
+2. Установите зависимости: `npm install`
+3. Запустите сервер разработки: `npm run dev` (или `npm start`)
+
+## 📂 Структура проекта
+```
+Tula-Hack26/
+├── backend/
+│   ├── app/
+│   │   ├── main.py            # Точка входа FastAPI
+│   │   ├── models.py         # Модели данных
+│   │   ├── schemas.py        # Pydantic схемы
+│   │   ├── database.py       # Работа с базой данных
+│   │   └── api/              # Роуты API
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # React компоненты
+│   │   ├── pages/           # Страницы приложения
+│   │   ├── store/           # Zustand store
+│   │   └── App.tsx          # Главный компонент
+├── docker-compose.yml      # Конфигурация Docker
+└── README.md               # Документация проекта
 ```
 
-2. Build and run the Docker image
-```bash
-docker build -t app-backend-image .
-docker run -dp 8000:8000 app-backend-image
-```
+## 🤖 Особенности AI-агентов
+- Динамическая генерация реплик через GigaChat API
+- Анализ поведения игроков для принятия решений
+- Адаптация стиля общения под контекст игры
+- Логирование взаимодействий для анализа и улучшения
 
-To run with a Docker volume for persistent data storage:
-```bash
-docker volume create app-db-volume
-docker build -t app-backend-image .
-docker run -dp 8000:8000 -v app-db-volume:/app/data app-backend-image
-```
+## 📈 Будущее развитие
+- Добавление различных ролей (Мафия, Доктор, Комиссар и др.)
+- Реализация системы рейтинга игроков
+- Поддержка приватных комнат
+- Интеграция с другими AI-моделями
+- Мобильная версия приложения
 
-#### Running backend without Docker
-1. Go to backend folder
-```bash
-cd backend
-```
-
-2. Create a virtual environment
-```bash
-python -m venv venv
-```
-
-3. Activate your virtual environment
-```bash
-source venv/bin/activate  # for Mac/Linux
-venv\Scripts\activate  # for Windows
-```
-
-4. Install the required dependencies
-```bash
-pip install -r requirements.txt
-```
-
-5. Start the FastAPI server
-```bash
-uvicorn main:app --reload
-```
-
----
-
-### :art: Running frontend independently
-The frontend can also be run separately, either with Docker or not.
-
-#### Running frontend with Docker
-1. Go to frontend folder
-```bash
-cd frontend
-```
-
-2. Build and run the Docker image
-```bash
-docker build -t app-frontend-image .
-docker run -dp 3000:3000 app-frontend-image
-```
-
-#### Running frontend without Docker
-1. Go to Frontend folder
-```bash
-cd frontend
-```
-
-2. Install dependencies and start the React server
-```bash
-npm install
-npm start
-```
-
----
-
-### :link: How to access the services
-- **Backend (FastAPI)**: Your backend app will be running on http://localhost:8000. Take a look at the API documentation at http://localhost:8000/docs.
-- **Frontend (React)**: Your frontend app will be running on http://localhost:3000.
-
----
-
-<p align="center">
-    <strong>Feel free to connect with me on <a href="https://www.linkedin.com/in/gabrielreira/">LinkedIn</a></strong>
-</p>
+## 📄 Лицензия
+Проект распространяется под лицензией MIT.
