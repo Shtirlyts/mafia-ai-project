@@ -59,12 +59,6 @@ async def create_room(request: CreateRoomRequest) -> CreateRoomResponse:
         request.player_name,
         settings,
     )
-    # Применяем настройки ролей к движку
-    engine.configure_roles(
-        settings.mafia_count,
-        settings.detective,
-        settings.doctor,
-    )
     return CreateRoomResponse(room_code=room_code, player_id=player_id)
 
 
@@ -147,19 +141,15 @@ async def start_game(room_code: str, player_id: str) -> dict[str, str]:
             bot_name = f"Bot_{i+1}"
             engine.add_player(Player(bot_id, bot_name, is_ai=True))
 
-    engine.configure_roles(
-        settings.mafia_count,
-        settings.detective,
-        settings.doctor,
-    )
+    engine.configure_roles(len(engine.players))
 
     engine.switch_phase()
 
-    from app.api.v1.websockets.game_ws import room_tasks, run_game_loop
+    from app.api.v1.websockets import game_ws
     import asyncio
 
-    if room_code not in room_tasks:
-        task = asyncio.create_task(run_game_loop(room_code, engine))
-        room_tasks[room_code] = task
+    if room_code not in game_ws.room_tasks:
+        task = asyncio.create_task(game_ws.run_game_loop(room_code, engine))
+        game_ws.room_tasks[room_code] = task
 
     return {"status": "started", "phase": engine.current_phase.value}

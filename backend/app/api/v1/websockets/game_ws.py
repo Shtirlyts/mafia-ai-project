@@ -374,8 +374,7 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                                     engine.add_player(
                                         Player(bot_id, bot_name, is_ai=True))
 
-                            engine.configure_roles(
-                                settings.mafia_count, settings.detective, settings.doctor)
+                            engine.configure_roles(len(engine.players))
                             engine.switch_phase()
 
                             if room_code not in room_tasks:

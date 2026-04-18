@@ -83,11 +83,26 @@ class MafiaEngine:
         if player_id in self.players:
             del self.players[player_id]
 
-    def configure_roles(self, mafia_count: int, detective: bool, doctor: bool):
+    def _auto_mafia_count(self, player_count: int) -> int:
+        if player_count <= 6:
+            return 1
+        if player_count <= 10:
+            return 2
+        if player_count <= 14:
+            return 3
+        return 4
+
+    def configure_roles(
+        self,
+        player_count: int,
+        mafia_count: Optional[int] = None,
+        detective: Optional[bool] = None,
+        doctor: Optional[bool] = None,
+    ):
         self.role_config = {
-            "mafia_count": max(1, mafia_count),
-            "has_detective": detective,
-            "has_doctor": doctor,
+            "mafia_count": max(1, mafia_count if mafia_count is not None else self._auto_mafia_count(player_count)),
+            "has_detective": player_count >= 5 if detective is None else detective,
+            "has_doctor": player_count >= 6 if doctor is None else doctor,
         }
 
     def assign_roles(self):
