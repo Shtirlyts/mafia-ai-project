@@ -9,7 +9,7 @@ class PlayerSchema(BaseModel):
     name: str
     role: Optional[str] = None
     is_alive: bool = True
-    is_ai: bool = False
+    is_ai: Optional[bool] = None
 
 
 class GameStateSchema(BaseModel):

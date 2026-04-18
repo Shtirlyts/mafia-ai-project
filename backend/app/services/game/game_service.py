@@ -39,6 +39,9 @@ async def start_game(
                 if settings.ai_count is not None
                 else max(0, 5 - len(human_players))
             )
+            # Гарантируем минимум 5 игроков всего
+            if len(human_players) + target_ai < 5:
+                target_ai = 5 - len(human_players)
             current_ai = sum(1 for p in engine.players.values() if p.is_ai)
             needed_ai = max(0, target_ai - current_ai)
 

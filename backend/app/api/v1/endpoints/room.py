@@ -52,6 +52,18 @@ class JoinRoomResponse(BaseModel):
     room_state: RoomStateResponse
 
 
+class UpdateRoomSettingsRequest(BaseModel):
+    mode: Optional[GameMode] = None
+    max_players: Optional[int] = None
+    ai_count: Optional[int] = None
+    mafia_count: Optional[int] = None
+    detective: Optional[bool] = None
+    doctor: Optional[bool] = None
+    night_duration_seconds: Optional[int] = None
+    day_duration_seconds: Optional[int] = None
+    voting_duration_seconds: Optional[int] = None
+
+
 @router.post("/create", response_model=CreateRoomResponse)
 async def create_room(request: CreateRoomRequest) -> CreateRoomResponse:
     settings = RoomSettings(
@@ -104,6 +116,36 @@ async def get_room_state(room_code: str) -> RoomStateResponse:
             else None
         ),
     )
+
+
+@router.patch("/{room_code}/settings")
+async def update_room_settings(
+    room_code: str,
+    player_id: str,
+    request: UpdateRoomSettingsRequest,
+) -> dict[str, str]:
+    """Обновить настройки комнаты (только хост)."""
+    if not room_manager.is_host(room_code, player_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only host can update settings",
+        )
+    engine = room_manager.get_engine(room_code)
+    settings = room_manager.get_settings(room_code)
+    if not engine or not settings:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if engine.current_phase != GamePhase.LOBBY:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot update settings after game started",
+        )
+    # Обновляем только переданные поля
+    update_data = request.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(settings, key, value)
+    # Сохраняем обновленные настройки
+    room_manager.settings[room_code] = settings
+    return {"status": "settings updated"}
 
 
 @router.post("/{room_code}/start")
