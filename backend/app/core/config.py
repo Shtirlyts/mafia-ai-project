@@ -1,0 +1,1 @@
+# Pydantic-settings (API ключи, лимиты)

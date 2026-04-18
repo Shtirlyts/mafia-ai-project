@@ -1,0 +1,1 @@
+# Таблица игроков (name, role, is_alive)

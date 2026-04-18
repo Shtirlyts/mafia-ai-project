@@ -1,0 +1,1 @@
+# State Machine: смена фаз (Night/Day)
