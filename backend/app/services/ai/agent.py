@@ -1,5 +1,7 @@
+# flake8: noqa
 from app.services.ai.ai_service import GigaChatService
-from app.services.game.engine import Role, GamePhase
+from app.services.game.engine import Role
+from typing import Any
 import random
 
 ai_service = GigaChatService()
@@ -31,7 +33,7 @@ class MafiaAIAgent:
         
         return await ai_service.get_response(prompt, system_prompt)
 
-    async def make_night_action(self, alive_players: list[dict]) -> str:
+    async def make_night_action(self, alive_players: list[dict[str, Any]]) -> str:
         """Логика выбора цели ночью (для мафии, доктора, комиссара)"""
         # Исключаем себя из списка возможных целей
         targets = [p for p in alive_players if p['player_id'] != self.player_id]

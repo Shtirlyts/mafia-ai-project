@@ -1,22 +1,26 @@
+# flake8: noqa
 # backend/app/api/v1/websockets/game_ws.py
 import asyncio
 import json
-from typing import Dict, Set
+from typing import Any, Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from app.services.game.engine import MafiaEngine, GamePhase, Role, Player
 from app.services.ai.agent import MafiaAIAgent
-from app.services.game.room_manager import room_manager
-from app.schemas.game_state import GameStateSchema, PlayerSchema, ChatMessageSchema
+from app.services.game.room_manager import room_manager, GameMode
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Таймеры для комнат (для возможности отмены при завершении игры)
-room_tasks: Dict[str, asyncio.Task] = {}
+room_tasks: Dict[str, asyncio.Task[None]] = {}
+
+JSONDict = dict[str, Any]
+
 
 class ConnectionManager:
     """Управляет WebSocket соединениями в комнатах."""
+
     def __init__(self):
         # room_code -> {player_id: websocket}
         self.active_connections: Dict[str, Dict[str, WebSocket]] = {}
@@ -36,10 +40,10 @@ class ConnectionManager:
                 del self.active_connections[room_code]
         logger.info(f"Client {client_id} disconnected from room {room_code}")
 
-    async def broadcast(self, room_code: str, message: dict):
+    async def broadcast(self, room_code: str, message: JSONDict) -> None:
         """Отправить сообщение всем подключённым в комнате."""
         if room_code in self.active_connections:
-            disconnected = []
+            disconnected: list[str] = []
             for client_id, ws in self.active_connections[room_code].items():
                 try:
                     await ws.send_json(message)
@@ -49,7 +53,12 @@ class ConnectionManager:
             for cid in disconnected:
                 self.disconnect(room_code, cid)
 
-    async def send_personal(self, message: dict, room_code: str, client_id: str):
+    async def send_personal(
+        self,
+        message: JSONDict,
+        room_code: str,
+        client_id: str,
+    ) -> None:
         """Отправить сообщение конкретному клиенту."""
         if room_code in self.active_connections and client_id in self.active_connections[room_code]:
             ws = self.active_connections[room_code][client_id]
@@ -59,18 +68,25 @@ class ConnectionManager:
                 logger.error(f"Error sending personal to {client_id}: {e}")
                 self.disconnect(room_code, client_id)
 
+
 manager = ConnectionManager()
 
-def get_public_game_state(engine: MafiaEngine, client_id: str, is_observer: bool = False) -> dict:
+
+def get_public_game_state(
+    engine: MafiaEngine,
+    client_id: str,
+    is_observer: bool = False,
+) -> JSONDict:
     """
     Возвращает состояние игры для конкретного клиента.
     Если это наблюдатель или игра окончена, показывает все роли.
     Иначе скрывает роли других игроков.
     """
-    show_all_roles = is_observer or (engine.current_phase == GamePhase.GAME_OVER)
-    players = []
+    show_all_roles = is_observer or (
+        engine.current_phase == GamePhase.GAME_OVER)
+    players: list[JSONDict] = []
     for p in engine.players.values():
-        player_dict = p.to_dict()
+        player_dict: JSONDict = p.to_dict()
         if not show_all_roles and p.player_id != client_id:
             player_dict["role"] = "unknown"
         players.append(player_dict)
@@ -86,6 +102,7 @@ def get_public_game_state(engine: MafiaEngine, client_id: str, is_observer: bool
         "vote_results": engine.vote_results
     }
 
+
 async def send_mafia_teammates(room_code: str, engine: MafiaEngine):
     """Отправляет каждому мафиози список его сокомандников."""
     mafia_ids = [p.player_id for p in engine.mafia_group if p.is_alive]
@@ -95,7 +112,8 @@ async def send_mafia_teammates(room_code: str, engine: MafiaEngine):
             "teammates": [pid for pid in mafia_ids if pid != mafia.player_id]
         }, room_code, mafia.player_id)
 
-async def run_game_loop(room_code: str, engine: MafiaEngine):
+
+async def run_game_loop(room_code: str, engine: MafiaEngine) -> None:
     """Фоновый цикл игры: переключение фаз по таймеру."""
     try:
         while engine.current_phase != GamePhase.GAME_OVER:
@@ -114,9 +132,6 @@ async def run_game_loop(room_code: str, engine: MafiaEngine):
                     "duration": duration
                 })
                 await asyncio.sleep(duration)
-
-            if engine.current_phase == GamePhase.GAME_OVER:
-                break
 
             new_phase = engine.switch_phase()
 
@@ -140,18 +155,24 @@ async def run_game_loop(room_code: str, engine: MafiaEngine):
         if room_code in room_tasks:
             del room_tasks[room_code]
 
-async def process_ai_night_actions(room_code: str, engine: MafiaEngine):
+
+async def process_ai_night_actions(room_code: str, engine: MafiaEngine) -> None:
     """AI-агенты выполняют ночные действия."""
-    alive_players = [p.to_dict() for p in engine.players.values() if p.is_alive]
-    for p_id, player in engine.players.items():
+    alive_players: list[JSONDict] = [
+        p.to_dict() for p in engine.players.values() if p.is_alive
+    ]
+    for player in engine.players.values():
         if player.is_ai and player.is_alive:
+            if player.role is None:
+                continue
             agent = MafiaAIAgent(player.player_id, player.name, player.role)
             target_id = await agent.make_night_action(alive_players)
             if target_id:
                 if player.role == Role.MAFIA:
                     engine.submit_mafia_vote(player.player_id, target_id)
                 elif player.role == Role.DETECTIVE:
-                    result = engine.submit_detective_check(player.player_id, target_id)
+                    result = engine.submit_detective_check(
+                        player.player_id, target_id)
                     if result is not None:
                         await manager.send_personal({
                             "type": "detective_result",
@@ -161,11 +182,14 @@ async def process_ai_night_actions(room_code: str, engine: MafiaEngine):
                 elif player.role == Role.DOCTOR:
                     engine.submit_doctor_save(player.player_id, target_id)
 
-async def process_ai_day_messages(room_code: str, engine: MafiaEngine):
+
+async def process_ai_day_messages(room_code: str, engine: MafiaEngine) -> None:
     """Генерация дневных сообщений от AI."""
     chat_history = "\n".join([f"{log}" for log in engine.game_log[-20:]])
-    for p_id, player in engine.players.items():
+    for player in engine.players.values():
         if player.is_ai and player.is_alive:
+            if player.role is None:
+                continue
             agent = MafiaAIAgent(player.player_id, player.name, player.role)
             message_text = await agent.generate_chat_message(chat_history)
             engine.game_log.append(f"{player.name}: {message_text}")
@@ -178,7 +202,8 @@ async def process_ai_day_messages(room_code: str, engine: MafiaEngine):
             })
             await asyncio.sleep(2)
 
-async def broadcast_full_state(room_code: str, engine: MafiaEngine):
+
+async def broadcast_full_state(room_code: str, engine: MafiaEngine) -> None:
     """Рассылает каждому клиенту его персональное состояние игры."""
     # Получаем список всех подключённых клиентов
     clients = manager.active_connections.get(room_code, {})
@@ -191,6 +216,7 @@ async def broadcast_full_state(room_code: str, engine: MafiaEngine):
             "data": state
         }, room_code, client_id)
 
+
 @router.websocket("/ws/{room_code}/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: str):
     # Проверяем существование комнаты
@@ -199,7 +225,12 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
         return
 
     engine = room_manager.get_engine(room_code)
-    settings = room_manager.get_settings(room_code)
+    if engine is None:
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Room engine not found",
+        )
+        return
 
     # Определяем, является ли клиент наблюдателем (хост в режиме AI_ONLY)
     is_observer = (room_manager.observers.get(room_code) == client_id)
@@ -248,7 +279,12 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
 
                 if msg_type == "chat":
                     text = message.get("text", "").strip()
-                    if text and engine.current_phase in (GamePhase.DAY, GamePhase.VOTING):
+                    if (
+                        text
+                        and player is not None
+                        and player.is_alive
+                        and engine.current_phase in (GamePhase.DAY, GamePhase.VOTING)
+                    ):
                         engine.game_log.append(f"{player.name}: {text}")
                         await manager.broadcast(room_code, {
                             "type": "chat",
@@ -268,7 +304,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                                 "target_id": target_id
                             })
                             # Проверяем, все ли живые проголосовали
-                            alive_count = sum(1 for p in engine.players.values() if p.is_alive)
+                            alive_count = sum(
+                                1 for p in engine.players.values() if p.is_alive)
                             if len(engine.votes) >= alive_count:
                                 if room_code in room_tasks:
                                     room_tasks[room_code].cancel()
@@ -276,11 +313,17 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                 elif msg_type == "night_action":
                     action = message.get("action")
                     target_id = message.get("target_id")
-                    if target_id and engine.current_phase == GamePhase.NIGHT:
+                    if (
+                        target_id
+                        and player is not None
+                        and player.is_alive
+                        and engine.current_phase == GamePhase.NIGHT
+                    ):
                         if action == "kill" and player.role == Role.MAFIA:
                             engine.submit_mafia_vote(client_id, target_id)
                         elif action == "check" and player.role == Role.DETECTIVE:
-                            result = engine.submit_detective_check(client_id, target_id)
+                            result = engine.submit_detective_check(
+                                client_id, target_id)
                             if result is not None:
                                 await websocket.send_json({
                                     "type": "detective_result",
@@ -288,7 +331,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                                     "is_mafia": result
                                 })
                         elif action == "save" and player.role == Role.DOCTOR:
-                            success = engine.submit_doctor_save(client_id, target_id)
+                            success = engine.submit_doctor_save(
+                                client_id, target_id)
                             if not success:
                                 await websocket.send_json({
                                     "type": "error",
@@ -301,32 +345,42 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                         if engine.current_phase == GamePhase.LOBBY:
                             # Проверяем режим и добавляем AI при необходимости (дублируем логику из REST, но оставим)
                             settings = room_manager.get_settings(room_code)
-                            human_players = [p for p in engine.players.values() if not p.is_ai]
+                            if settings is None:
+                                await websocket.send_json({"type": "error", "message": "Room settings not found"})
+                                continue
+                            human_players = [
+                                p for p in engine.players.values() if not p.is_ai]
 
-                            if settings.mode == "humans_only" and len(human_players) < 5:
+                            if settings.mode == GameMode.HUMANS_ONLY and len(human_players) < 5:
                                 await websocket.send_json({"type": "error", "message": "Need at least 5 human players"})
                                 continue
-                            elif settings.mode == "mixed":
-                                target_ai = settings.ai_count if settings.ai_count is not None else max(0, 5 - len(human_players))
-                                current_ai = sum(1 for p in engine.players.values() if p.is_ai)
+                            elif settings.mode == GameMode.MIXED:
+                                target_ai = settings.ai_count if settings.ai_count is not None else max(
+                                    0, 5 - len(human_players))
+                                current_ai = sum(
+                                    1 for p in engine.players.values() if p.is_ai)
                                 needed_ai = target_ai - current_ai
                                 for i in range(needed_ai):
                                     bot_id = f"bot_{i+1}_{room_code}"
                                     bot_name = f"Bot_{i+1}"
-                                    engine.add_player(Player(bot_id, bot_name, is_ai=True))
-                            elif settings.mode == "ai_only":
+                                    engine.add_player(
+                                        Player(bot_id, bot_name, is_ai=True))
+                            elif settings.mode == GameMode.AI_ONLY:
                                 engine.players.clear()
                                 total_ai = max(5, settings.max_players)
                                 for i in range(total_ai):
                                     bot_id = f"bot_{i+1}_{room_code}"
                                     bot_name = f"Bot_{i+1}"
-                                    engine.add_player(Player(bot_id, bot_name, is_ai=True))
+                                    engine.add_player(
+                                        Player(bot_id, bot_name, is_ai=True))
 
-                            engine.configure_roles(settings.mafia_count, settings.detective, settings.doctor)
+                            engine.configure_roles(
+                                settings.mafia_count, settings.detective, settings.doctor)
                             engine.switch_phase()
 
                             if room_code not in room_tasks:
-                                task = asyncio.create_task(run_game_loop(room_code, engine))
+                                task = asyncio.create_task(
+                                    run_game_loop(room_code, engine))
                                 room_tasks[room_code] = task
 
                             await process_ai_night_actions(room_code, engine)
@@ -336,7 +390,8 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                         await websocket.send_json({"type": "error", "message": "Only host can start the game"})
 
                 elif msg_type == "get_state":
-                    state = get_public_game_state(engine, client_id, is_observer)
+                    state = get_public_game_state(
+                        engine, client_id, is_observer)
                     await websocket.send_json({
                         "type": "state_update",
                         "data": state

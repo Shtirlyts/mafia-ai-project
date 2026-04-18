@@ -1,9 +1,11 @@
+# flake8: noqa
 # backend/app/services/game/engine.py
 from enum import Enum
 from datetime import datetime
-from typing import List, Dict, Optional, Set
+from typing import Any, List, Dict, Optional
 import random
 from collections import Counter
+
 
 class GamePhase(Enum):
     LOBBY = "lobby"
@@ -28,50 +30,12 @@ class Player:
         self.role: Optional[Role] = None
         self.is_alive = True
         self.last_will = ""
-        self.role_config = {} 
         self.last_saved_self = False  # True, если доктор лечил себя в прошлую ночь
 
-    def configure_roles(self, mafia_count: int, detective: bool, doctor: bool):
-        self.role_config = {
-            "mafia_count": mafia_count,
-            "has_detective": detective,
-            "has_doctor": doctor
-    }
-    
-    def assign_roles(self):
-        alive_players = [p for p in self.players.values() if p.is_alive]
-        random.shuffle(alive_players)
-        
-        mafia_cnt = self.role_config["mafia_count"]
-        # Нельзя назначить больше мафии, чем половина игроков
-        max_mafia = max(1, len(alive_players) // 2)
-        mafia_cnt = min(mafia_cnt, max_mafia)
-        
-        idx = 0
-        # Мафия
-        for i in range(mafia_cnt):
-            if idx < len(alive_players):
-                alive_players[idx].assign_role(Role.MAFIA)
-                self.mafia_group.append(alive_players[idx])
-                idx += 1
-        
-        # Детектив
-        if self.role_config["has_detective"] and idx < len(alive_players):
-            alive_players[idx].assign_role(Role.DETECTIVE)
-            self.detective = alive_players[idx]
-            idx += 1
-        
-        # Доктор
-        if self.role_config["has_doctor"] and idx < len(alive_players):
-            alive_players[idx].assign_role(Role.DOCTOR)
-            self.doctor = alive_players[idx]
-            idx += 1
-        
-        # Остальные мирные
-        for i in range(idx, len(alive_players)):
-            alive_players[i].assign_role(Role.CITIZEN)
+    def assign_role(self, role: Role):
+        self.role = role
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "player_id": self.player_id,
             "name": self.name,
@@ -88,6 +52,11 @@ class MafiaEngine:
         self.mafia_group: List[Player] = []
         self.detective: Optional[Player] = None
         self.doctor: Optional[Player] = None
+        self.role_config = {
+            "mafia_count": 1,
+            "has_detective": True,
+            "has_doctor": True,
+        }
 
         # Ночные действия: мафия голосует (словарь voter_id -> target_id)
         self.mafia_votes: Dict[str, str] = {}
@@ -105,7 +74,7 @@ class MafiaEngine:
         self.eliminated_player: Optional[Player] = None
 
         self.start_time = datetime.now()
-        self.game_log = []
+        self.game_log: list[str] = []
 
     def add_player(self, player: Player):
         self.players[player.player_id] = player
@@ -114,13 +83,30 @@ class MafiaEngine:
         if player_id in self.players:
             del self.players[player_id]
 
+    def configure_roles(self, mafia_count: int, detective: bool, doctor: bool):
+        self.role_config = {
+            "mafia_count": max(1, mafia_count),
+            "has_detective": detective,
+            "has_doctor": doctor,
+        }
+
     def assign_roles(self):
         """Распределение ролей среди живых игроков."""
         alive_players = [p for p in self.players.values() if p.is_alive]
-        if len(alive_players) < 5:
-            mafia_count = 1
-        else:
-            mafia_count = 2
+        if not alive_players:
+            return
+
+        # Сбрасываем предыдущие назначения перед новой игрой.
+        self.mafia_group = []
+        self.detective = None
+        self.doctor = None
+
+        for p in self.players.values():
+            p.role = None
+
+        mafia_count = self.role_config["mafia_count"]
+        max_mafia = max(1, len(alive_players) // 2)
+        mafia_count = min(mafia_count, max_mafia)
 
         random.shuffle(alive_players)
 
@@ -132,18 +118,19 @@ class MafiaEngine:
 
         # Назначаем комиссара
         detective_idx = mafia_count
-        if detective_idx < len(alive_players):
+        if self.role_config["has_detective"] and detective_idx < len(alive_players):
             alive_players[detective_idx].assign_role(Role.DETECTIVE)
             self.detective = alive_players[detective_idx]
 
         # Назначаем доктора
-        doctor_idx = mafia_count + 1
-        if doctor_idx < len(alive_players):
+        doctor_idx = detective_idx + (1 if self.detective else 0)
+        if self.role_config["has_doctor"] and doctor_idx < len(alive_players):
             alive_players[doctor_idx].assign_role(Role.DOCTOR)
             self.doctor = alive_players[doctor_idx]
 
         # Остальные — мирные жители
-        for i in range(mafia_count + 2, len(alive_players)):
+        start_citizen_idx = doctor_idx + (1 if self.doctor else 0)
+        for i in range(start_citizen_idx, len(alive_players)):
             alive_players[i].assign_role(Role.CITIZEN)
 
     def switch_phase(self) -> GamePhase:
@@ -193,8 +180,8 @@ class MafiaEngine:
 
     def submit_mafia_vote(self, voter_id: str, target_id: str) -> bool:
         voter = self.players.get(voter_id)
-        if (self.current_phase == GamePhase.NIGHT and 
-            voter and voter.is_alive and voter.role == Role.MAFIA):
+        if (self.current_phase == GamePhase.NIGHT and
+                voter and voter.is_alive and voter.role == Role.MAFIA):
             self.mafia_votes[voter_id] = target_id
             return True
         return False
@@ -206,15 +193,16 @@ class MafiaEngine:
         # Подсчёт голосов по целям
         target_counts = Counter(self.mafia_votes.values())
         max_votes = max(target_counts.values())
-        candidates = [tid for tid, cnt in target_counts.items() if cnt == max_votes]
+        candidates = [tid for tid, cnt in target_counts.items()
+                      if cnt == max_votes]
 
         # Выбираем случайного из лидеров
         self.mafia_kill_target = random.choice(candidates)
 
     def submit_detective_check(self, player_id: str, target_id: str) -> Optional[bool]:
-        if (self.current_phase == GamePhase.NIGHT and 
+        if (self.current_phase == GamePhase.NIGHT and
             self.detective and player_id == self.detective.player_id and
-            self.detective.is_alive):
+                self.detective.is_alive):
             target = self.players.get(target_id)
             if target and target.is_alive:
                 is_mafia = (target.role == Role.MAFIA)
@@ -226,9 +214,9 @@ class MafiaEngine:
         return None
 
     def submit_doctor_save(self, player_id: str, target_id: str) -> bool:
-        if (self.current_phase == GamePhase.NIGHT and 
+        if (self.current_phase == GamePhase.NIGHT and
             self.doctor and player_id == self.doctor.player_id and
-            self.doctor.is_alive):
+                self.doctor.is_alive):
             target = self.players.get(target_id)
             if not target or not target.is_alive:
                 return False
@@ -255,16 +243,17 @@ class MafiaEngine:
 
         # Обновляем флаг самолечения доктора
         if self.doctor and self.doctor.is_alive:
-            self.doctor.last_saved_self = (doctor_save == self.doctor.player_id)
+            self.doctor.last_saved_self = (
+                doctor_save == self.doctor.player_id)
 
     # Голосование днём
     def submit_vote(self, voter_id: str, target_id: str) -> bool:
         """Голосование на дневном голосовании."""
         voter = self.players.get(voter_id)
         target = self.players.get(target_id)
-        if (self.current_phase == GamePhase.VOTING and 
-            voter and voter.is_alive and 
-            target and target.is_alive):
+        if (self.current_phase == GamePhase.VOTING and
+            voter and voter.is_alive and
+                target and target.is_alive):
             self.votes[voter_id] = target_id
             return True
         return False
@@ -273,12 +262,14 @@ class MafiaEngine:
         """Подсчёт голосов и выбывание игрока."""
         self.vote_results.clear()
         for target_id in self.votes.values():
-            self.vote_results[target_id] = self.vote_results.get(target_id, 0) + 1
+            self.vote_results[target_id] = self.vote_results.get(
+                target_id, 0) + 1
 
         if self.vote_results:
             # Находим цель с максимальным числом голосов
             max_votes = max(self.vote_results.values())
-            candidates = [tid for tid, cnt in self.vote_results.items() if cnt == max_votes]
+            candidates = [tid for tid,
+                          cnt in self.vote_results.items() if cnt == max_votes]
             eliminated_id = random.choice(candidates)
 
             self.eliminated_player = self.players[eliminated_id]
@@ -291,7 +282,8 @@ class MafiaEngine:
         """Проверка условий победы."""
         alive = [p for p in self.players.values() if p.is_alive]
         alive_mafia = [p for p in alive if p.role == Role.MAFIA]
-        alive_citizens = [p for p in alive if p.role in (Role.CITIZEN, Role.DETECTIVE, Role.DOCTOR)]
+        alive_citizens = [p for p in alive if p.role in (
+            Role.CITIZEN, Role.DETECTIVE, Role.DOCTOR)]
 
         if len(alive_mafia) >= len(alive_citizens):
             return True
@@ -301,7 +293,8 @@ class MafiaEngine:
 
     def get_winner(self) -> str:
         """Возвращает 'mafia' или 'citizens'."""
-        alive_mafia = [p for p in self.players.values() if p.is_alive and p.role == Role.MAFIA]
+        alive_mafia = [p for p in self.players.values(
+        ) if p.is_alive and p.role == Role.MAFIA]
         return "mafia" if alive_mafia else "citizens"
 
     def to_dict(self):

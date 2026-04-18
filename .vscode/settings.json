@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "/home/artem/Рабочий стол/project_ai/mafia-ai-project/.venv/bin/python",
+  "python.analysis.extraPaths": [
+    "./backend"
+  ]
+}

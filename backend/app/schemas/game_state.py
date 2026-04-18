@@ -1,19 +1,24 @@
 # Схема текущего состояния игры для фронта
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.services.game.engine import GamePhase
 
+
 class PlayerSchema(BaseModel):
-    id: str
+    player_id: str
     name: str
-    role: Optional[str] = "citizen"  # citizen, mafia, detective, doc.
+    role: Optional[str] = None
     is_alive: bool = True
     is_ai: bool = False
 
+
 class GameStateSchema(BaseModel):
-    current_phase: GamePhase
+    phase: GamePhase
     players: List[PlayerSchema]
     winner: Optional[str] = None
+    eliminated_player: Optional[str] = None
+    vote_results: dict[str, int] = Field(default_factory=dict)
+
 
 class ChatMessageSchema(BaseModel):
     sender_id: str
