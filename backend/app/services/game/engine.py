@@ -35,19 +35,20 @@ class Player:
     def assign_role(self, role: Role):
         self.role = role
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, reveal_role: bool = False, reveal_ai: bool = False) -> dict[str, Any]:
         base = {
             "player_id": self.player_id,
             "name": self.name,
             "is_alive": self.is_alive
         }
-        if hasattr(self, '_reveal_all') and self._reveal_all:
-            base.update({
-                "role": self.role.value if self.role else None,
-                "is_ai": self.is_ai
-            })
-        else:
+        if reveal_role:
             base["role"] = self.role.value if self.role else None
+        else:
+            base["role"] = None
+        if reveal_ai:
+            base["is_ai"] = self.is_ai
+        else:
+            base["is_ai"] = None
         return base
 
 
@@ -331,13 +332,13 @@ class MafiaEngine:
         ) if p.is_alive and p.role == Role.MAFIA]
         return "mafia" if alive_mafia else "citizens"
 
-    def to_dict(self):
+    def to_dict(self, reveal_role: bool = False, reveal_ai: bool = False):
         return {
             "phase": self.current_phase.value,
-            "players": {pid: p.to_dict() for pid, p in self.players.items()},
+            "players": {pid: p.to_dict(reveal_role=reveal_role, reveal_ai=reveal_ai) for pid, p in self.players.items()},
             "votes": self.votes,
             "vote_results": self.vote_results,
-            "eliminated_player": self.eliminated_player.to_dict() if self.eliminated_player else None,
+            "eliminated_player": self.eliminated_player.to_dict(reveal_role=reveal_role, reveal_ai=reveal_ai) if self.eliminated_player else None,
             "winner": self.get_winner() if self.current_phase == GamePhase.GAME_OVER else None,
             "day_chat": self.day_chat,
             "night_chat": self.night_chat

@@ -1,16 +1,28 @@
 # flake8: noqa
 from app.services.ai.ai_service import GigaChatService
+from app.services.ai.context_manager import context_manager, AgentContext
 from app.services.game.engine import Role
-from typing import Any
+from typing import Any, Optional
 import random
 
 ai_service = GigaChatService()
 
 class MafiaAIAgent:
-    def __init__(self, player_id: str, name: str, role: Role):
+    def __init__(self, player_id: str, name: str, role: Role, room_code: str):
         self.player_id = player_id
         self.name = name
         self.role = role
+        self.room_code = room_code
+        self.context: Optional[AgentContext] = None
+        self._ensure_context()
+    
+    def _ensure_context(self):
+        """Создать или получить контекст агента."""
+        self.context = context_manager.get_agent_context(self.room_code, self.player_id)
+        if self.context is None:
+            self.context = context_manager.create_agent_context(
+                self.room_code, self.player_id, self.name, self.role
+            )
 
     def _get_system_prompt(self) -> str:
         """Формирует характер бота в зависимости от его роли"""
@@ -26,29 +38,80 @@ class MafiaAIAgent:
         else:
             return base_prompt + "Твоя роль: МИРНЫЙ ЖИТЕЛЬ. Твоя цель — вычислить мафию по их словам и поведению. Будь подозрительным."
 
-    async def generate_chat_message(self, chat_history: str) -> str:
-        """Генерация сообщения для дневного обсуждения"""
+    async def generate_chat_message(self) -> str:
+        """Генерация сообщения для дневного обсуждения на основе контекста агента."""
+        self._ensure_context()
         system_prompt = self._get_system_prompt()
-        prompt = f"Контекст чата:\n{chat_history}\n\nНапиши свое следующее сообщение в чат:"
+        # Добавляем информацию о подозрениях, если есть
+        suspicion_text = ""
+        if self.context.suspicions:
+            suspicion_lines = []
+            for player_id, suspicion in self.context.suspicions.items():
+                player_name = self.context.players_knowledge.get(player_id, {}).get("name", "unknown")
+                suspicion_lines.append(f"{player_name}: {suspicion:.1f}")
+            if suspicion_lines:
+                suspicion_text = "\nТвои текущие подозрения (0 - мирный, 1 - мафия):\n" + "\n".join(suspicion_lines)
         
-        return await ai_service.get_response(prompt, system_prompt)
+        chat_history = self.context.get_filtered_chat_history(include_night=False)
+        prompt = f"Контекст чата:\n{chat_history}\n{suspicion_text}\n\nНапиши свое следующее сообщение в чат:"
+        
+        response = await ai_service.get_response(prompt, system_prompt)
+        # Сохраняем своё сообщение в контекст
+        self.context.add_message(self.name, response, "day")
+        return response
 
-    async def make_night_action(self, alive_players: list[dict[str, Any]]) -> str:
-        """Логика выбора цели ночью (для мафии, доктора, комиссара)"""
-        # Исключаем себя из списка возможных целей
-        targets = [p for p in alive_players if p['player_id'] != self.player_id]
+    async def make_night_action(self) -> str:
+        """Логика выбора цели ночью (для мафии, доктора, комиссара) на основе контекста."""
+        self._ensure_context()
+        # Получаем публичную информацию об игроках из контекста
+        players_info = self.context.get_public_player_info()
+        # Исключаем себя и мертвых
+        targets = [p for p in players_info if p['player_id'] != self.player_id and p['is_alive']]
         if not targets:
             return ""
-            
+        
+        # Для мафии исключаем сокомандников (не убиваем своих)
+        if self.role == Role.MAFIA:
+            targets = [p for p in targets if p['player_id'] not in self.context.teammates]
+        
+        # Если после фильтрации не осталось целей, вернуть пустую строку (не должно происходить)
+        if not targets:
+            return ""
+        
+        # Формируем промпт с учетом подозрений
+        suspicion_text = ""
+        if self.context.suspicions:
+            suspicion_lines = []
+            for player_id, suspicion in self.context.suspicions.items():
+                player = next((p for p in players_info if p['player_id'] == player_id), None)
+                if player:
+                    suspicion_lines.append(f"{player['name']}: {suspicion:.1f}")
+            if suspicion_lines:
+                suspicion_text = "\nТвои подозрения (0 - мирный, 1 - мафия):\n" + "\n".join(suspicion_lines)
+        
         system_prompt = f"Ты играешь в 'Мафию'. Твоя роль: {self.role.value}. Сейчас НОЧЬ."
-        prompt = f"Список живых игроков: {', '.join([p['name'] for p in targets])}. " \
+        prompt = f"Список живых игроков: {', '.join([p['name'] for p in targets])}. {suspicion_text}\n" \
                  f"Напиши ТОЛЬКО ИМЯ игрока, против которого ты применяешь свое ночное действие."
         
         response = await ai_service.get_response(prompt, system_prompt)
         
-        # Простая эвристика: ищем имя в ответе (так как LLM может написать лишнего)
+        # Ищем имя в ответе
         for target in targets:
             if target['name'].lower() in response.lower():
                 return target['player_id']
 
+        # Если не нашли, выбираем случайного из целей
         return random.choice(targets)['player_id']
+    
+    def update_context_with_message(self, sender_name: str, text: str, phase: str):
+        """Обновить контекст новым сообщением от другого игрока."""
+        self._ensure_context()
+        self.context.add_message(sender_name, text, phase)
+        # Можно добавить логику обновления подозрений на основе сообщения
+        # Пока просто сохраняем
+    
+    def update_context_with_game_state(self, engine):
+        """Обновить контекст на основе состояния игры (вызывается извне)."""
+        self._ensure_context()
+        # Делегируем ContextManager
+        context_manager.update_from_game_state(self.room_code, engine)

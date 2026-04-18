@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from app.services.game.engine import MafiaEngine, GamePhase, Role, Player
 from app.services.ai.agent import MafiaAIAgent
+from app.services.ai.context_manager import context_manager
 from app.services.game.room_manager import room_manager, GameMode
 from app.services.game.game_service import GameServiceError, start_game as start_game_service
 from app.schemas.ws_messages import (
@@ -98,12 +99,9 @@ def get_public_game_state(
 
     players: list[JSONDict] = []
     for p in engine.players.values():
-        player_dict: JSONDict = p.to_dict()
-        if not show_all_roles and p.player_id != client_id:
-            player_dict["role"] = "unknown"
-        if not show_all_roles:
-            player_dict["is_ai"] = None
-
+        reveal_role = show_all_roles or p.player_id == client_id
+        reveal_ai = show_all_roles
+        player_dict: JSONDict = p.to_dict(reveal_role=reveal_role, reveal_ai=reveal_ai)
         players.append(player_dict)
     if show_eliminated_role and engine.eliminated_player:
         for player_data in players:
@@ -196,16 +194,16 @@ async def run_game_loop(room_code: str, engine: MafiaEngine) -> None:
 
 
 async def process_ai_night_actions(room_code: str, engine: MafiaEngine) -> None:
-    """AI-агенты выполняют ночные действия."""
-    alive_players: list[JSONDict] = [
-        p.to_dict() for p in engine.players.values() if p.is_alive
-    ]
+    """AI-агенты выполняют ночные действия с использованием индивидуального контекста."""
+    # Обновляем контексты всех агентов текущим состоянием игры
+    context_manager.update_from_game_state(room_code, engine)
+    
     for player in engine.players.values():
         if player.is_ai and player.is_alive:
             if player.role is None:
                 continue
-            agent = MafiaAIAgent(player.player_id, player.name, player.role)
-            target_id = await agent.make_night_action(alive_players)
+            agent = MafiaAIAgent(player.player_id, player.name, player.role, room_code)
+            target_id = await agent.make_night_action()
             if target_id:
                 if player.role == Role.MAFIA:
                     engine.submit_mafia_vote(player.player_id, target_id)
@@ -223,15 +221,26 @@ async def process_ai_night_actions(room_code: str, engine: MafiaEngine) -> None:
 
 
 async def process_ai_day_messages(room_code: str, engine: MafiaEngine) -> None:
-    """Генерация дневных сообщений от AI."""
-    chat_history = "\n".join([f"{log}" for log in engine.game_log[-20:]])
+    """Генерация дневных сообщений от AI с использованием индивидуального контекста."""
+    # Синхронизируем состояние игры и историю чата с фильтрацией по ролям
+    context_manager.update_from_game_state(room_code, engine)
+    context_manager.sync_filtered_chat_history(room_code, engine)
+    
+    # Генерация сообщений
     for player in engine.players.values():
         if player.is_ai and player.is_alive:
             if player.role is None:
                 continue
-            agent = MafiaAIAgent(player.player_id, player.name, player.role)
-            message_text = await agent.generate_chat_message(chat_history)
+            agent = MafiaAIAgent(player.player_id, player.name, player.role, room_code)
+            message_text = await agent.generate_chat_message()
             engine.game_log.append(f"{player.name}: {message_text}")
+            # Также добавляем сгенерированное сообщение в day_chat для будущей синхронизации
+            engine.day_chat.append({
+                "sender_id": player.player_id,
+                "sender_name": player.name,
+                "text": message_text,
+                "timestamp": datetime.now().isoformat()
+            })
             await manager.broadcast(room_code, {
                 "type": "chat",
                 "sender_id": player.player_id,

@@ -15,7 +15,7 @@ router = APIRouter()
 
 def _serialize_players(engine: MafiaEngine) -> list[PlayerSchema]:
     players = engine.players.values()
-    return [PlayerSchema.model_validate(p.to_dict()) for p in players]
+    return [PlayerSchema.model_validate(p.to_dict(reveal_role=False, reveal_ai=False)) for p in players]
 
 
 class CreateRoomRequest(BaseModel):
