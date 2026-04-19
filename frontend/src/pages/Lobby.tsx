@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { useGame } from '@/context/GameContext';
+<<<<<<< Updated upstream
 import { Users, Link as LinkIcon, User, Play } from 'lucide-react';
+=======
+import { Users, Link as LinkIcon, Bot, User, Play } from 'lucide-react';
+>>>>>>> Stashed changes
 import { motion } from 'motion/react';
 
 export const Lobby = () => {

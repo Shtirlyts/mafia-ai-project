@@ -46,6 +46,7 @@ async def start_game(
             needed_ai = max(0, target_ai - current_ai)
 
             existing_ids = set(engine.players.keys())
+<<<<<<< Updated upstream
             next_idx = current_ai + 1
             created = 0
             while created < needed_ai:
@@ -54,6 +55,23 @@ async def start_game(
                 next_idx += 1
                 if bot_id in existing_ids:
                     continue
+=======
+            # Список случайных имен для AI игроков
+            ai_names = [
+                "Алексей", "Мария", "Иван", "Елена", "Дмитрий", "Ольга", "Сергей", "Анна",
+                "Павел", "Наталья", "Михаил", "Татьяна", "Андрей", "Екатерина", "Николай", "Дарья"
+            ]
+            import random
+            random.shuffle(ai_names)
+            name_index = 0
+            created = 0
+            while created < needed_ai:
+                bot_id = f"ai_{random.randint(1000, 9999)}_{room_code}"
+                if bot_id in existing_ids:
+                    continue
+                bot_name = ai_names[name_index % len(ai_names)]
+                name_index += 1
+>>>>>>> Stashed changes
                 engine.add_player(Player(bot_id, bot_name, is_ai=True))
                 existing_ids.add(bot_id)
                 created += 1
@@ -61,9 +79,22 @@ async def start_game(
         elif settings.mode == GameMode.AI_ONLY:
             engine.players.clear()
             total_ai = max(5, settings.max_players)
+<<<<<<< Updated upstream
             for i in range(total_ai):
                 bot_id = f"bot_{i + 1}_{room_code}"
                 bot_name = f"Bot_{i + 1}"
+=======
+            # Список случайных имен для AI игроков
+            ai_names = [
+                "Алексей", "Мария", "Иван", "Елена", "Дмитрий", "Ольга", "Сергей", "Анна",
+                "Павел", "Наталья", "Михаил", "Татьяна", "Андрей", "Екатерина", "Николай", "Дарья"
+            ]
+            import random
+            random.shuffle(ai_names)
+            for i in range(total_ai):
+                bot_id = f"ai_{random.randint(1000, 9999)}_{room_code}"
+                bot_name = ai_names[i % len(ai_names)]
+>>>>>>> Stashed changes
                 engine.add_player(Player(bot_id, bot_name, is_ai=True))
 
         engine.configure_roles(
@@ -82,4 +113,8 @@ async def start_game(
             )
             game_ws.room_tasks[room_code] = task
 
+<<<<<<< Updated upstream
         return engine, new_phase
+=======
+        return engine, new_phase
+>>>>>>> Stashed changes

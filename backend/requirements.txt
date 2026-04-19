@@ -7,4 +7,9 @@ websockets==12.0
 gigachat
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+<<<<<<< Updated upstream
 requests
+=======
+requests
+jose
+>>>>>>> Stashed changes

@@ -164,6 +164,7 @@ class MafiaEngine:
         if self.current_phase == GamePhase.LOBBY:
             if len(self.players) < 1:
                 return self.current_phase
+<<<<<<< Updated upstream
             self.current_phase = GamePhase.NIGHT
             self.assign_roles()
 
@@ -174,6 +175,10 @@ class MafiaEngine:
             self.current_phase = GamePhase.DAY
             # Сбрасываем временные данные ночи
             self.clear_night_actions()
+=======
+            self.current_phase = GamePhase.DAY
+            self.assign_roles()
+>>>>>>> Stashed changes
 
         elif self.current_phase == GamePhase.DAY:
             self.current_phase = GamePhase.VOTING
@@ -191,6 +196,17 @@ class MafiaEngine:
                 self.vote_results.clear()
                 self.eliminated_player = None
 
+<<<<<<< Updated upstream
+=======
+        elif self.current_phase == GamePhase.NIGHT:
+            # Применяем ночные действия перед днём
+            self._resolve_mafia_vote()
+            self.apply_night_actions()
+            self.current_phase = GamePhase.DAY
+            # Сбрасываем временные данные ночи
+            self.clear_night_actions()
+
+>>>>>>> Stashed changes
         return self.current_phase
 
     def clear_night_actions(self):
@@ -345,4 +361,8 @@ class MafiaEngine:
         }
 
 
+<<<<<<< Updated upstream
 game_engine = MafiaEngine()
+=======
+game_engine = MafiaEngine()
+>>>>>>> Stashed changes

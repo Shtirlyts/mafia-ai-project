@@ -1,4 +1,8 @@
+<<<<<<< Updated upstream
 @import 'tailwindcss';
+=======
+@import 'tailwindcss' source(none);
+>>>>>>> Stashed changes
 @source '../**/*.{js,ts,jsx,tsx}';
 
 @import 'tw-animate-css';

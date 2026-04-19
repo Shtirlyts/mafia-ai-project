@@ -11,6 +11,11 @@ import { GameProvider, useGame } from "@/context/GameContext";
 
 const GameRouter = () => {
   const { phase } = useGame();
+<<<<<<< Updated upstream
+=======
+
+  console.log("phase:", phase);
+>>>>>>> Stashed changes
   
   return (
     <AnimatePresence mode="wait">

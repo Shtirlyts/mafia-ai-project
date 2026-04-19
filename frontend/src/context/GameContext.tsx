@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+<<<<<<< Updated upstream
 import { Player, GamePhase, GameSettings, ChatMessage, Vote, GameMode } from '../types';
+=======
+import { Player, Role, GamePhase, GameSettings, ChatMessage, Vote, GameMode } from '../types';
+>>>>>>> Stashed changes
 import { getRandomName, getRandomPhrase, getRandomDefense } from '../utils/mockData';
 import { createRoom, joinRoom, getRoomState, startGame as apiStartGame } from '../api/client';
 
@@ -109,7 +113,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let targetPool = aliveTargets;
         if (bot.role === 'mafia') targetPool = aliveTargets.filter(p => p.role !== 'mafia');
         if (targetPool.length > 0) {
+<<<<<<< Updated upstream
            botActions[bot.role] = targetPool[Math.floor(Math.random() * targetPool.length)]!.id;
+=======
+           botActions[bot.role] = targetPool[Math.floor(Math.random() * targetPool.length)].id;
+>>>>>>> Stashed changes
         }
       }
     });
@@ -169,7 +177,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (aliveBots.length > 0) {
       botChatRef.current = setInterval(() => {
         if (Math.random() > 0.4) {
+<<<<<<< Updated upstream
           const bot = aliveBots[Math.floor(Math.random() * aliveBots.length)]!;
+=======
+          const bot = aliveBots[Math.floor(Math.random() * aliveBots.length)];
+>>>>>>> Stashed changes
           const targetPool = currentPlayers.filter(p => p.isAlive && p.id !== bot.id);
           const target = targetPool[Math.floor(Math.random() * targetPool.length)];
           if (target) {
@@ -203,7 +215,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Bots vote after 5 seconds
     setTimeout(() => {
       const botVotes = aliveBots.map(bot => {
+<<<<<<< Updated upstream
          const t = aliveTargets[Math.floor(Math.random() * aliveTargets.length)]!;
+=======
+         const t = aliveTargets[Math.floor(Math.random() * aliveTargets.length)];
+>>>>>>> Stashed changes
          return { voterId: bot.id, targetId: t.id };
       });
       setVotes(prev => {
@@ -432,4 +448,8 @@ export const useGame = () => {
   const context = useContext(GameContext);
   if (!context) throw new Error("useGame must be used within Provider");
   return context;
+<<<<<<< Updated upstream
 };
+=======
+};
+>>>>>>> Stashed changes
