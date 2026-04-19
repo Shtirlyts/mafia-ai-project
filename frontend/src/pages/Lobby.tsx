@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGame } from '@/context/GameContext';
-import { Users, Link as LinkIcon, Bot, User, Play } from 'lucide-react';
+import { Users, Link as LinkIcon, User, Play } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export const Lobby = () => {

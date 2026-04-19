@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Player, Role, GamePhase, GameSettings, ChatMessage, Vote, GameMode } from '../types';
+import { Player, GamePhase, GameSettings, ChatMessage, Vote, GameMode } from '../types';
 import { getRandomName, getRandomPhrase, getRandomDefense } from '../utils/mockData';
 import { createRoom, joinRoom, getRoomState, startGame as apiStartGame } from '../api/client';
 
@@ -109,7 +109,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let targetPool = aliveTargets;
         if (bot.role === 'mafia') targetPool = aliveTargets.filter(p => p.role !== 'mafia');
         if (targetPool.length > 0) {
-           botActions[bot.role] = targetPool[Math.floor(Math.random() * targetPool.length)].id;
+           botActions[bot.role] = targetPool[Math.floor(Math.random() * targetPool.length)]!.id;
         }
       }
     });
@@ -169,7 +169,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (aliveBots.length > 0) {
       botChatRef.current = setInterval(() => {
         if (Math.random() > 0.4) {
-          const bot = aliveBots[Math.floor(Math.random() * aliveBots.length)];
+          const bot = aliveBots[Math.floor(Math.random() * aliveBots.length)]!;
           const targetPool = currentPlayers.filter(p => p.isAlive && p.id !== bot.id);
           const target = targetPool[Math.floor(Math.random() * targetPool.length)];
           if (target) {
@@ -203,7 +203,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Bots vote after 5 seconds
     setTimeout(() => {
       const botVotes = aliveBots.map(bot => {
-         const t = aliveTargets[Math.floor(Math.random() * aliveTargets.length)];
+         const t = aliveTargets[Math.floor(Math.random() * aliveTargets.length)]!;
          return { voterId: bot.id, targetId: t.id };
       });
       setVotes(prev => {
