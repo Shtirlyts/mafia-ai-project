@@ -11,8 +11,6 @@ import { GameProvider, useGame } from "@/context/GameContext";
 
 const GameRouter = () => {
   const { phase } = useGame();
-
-  console.log("phase:", phase);
   
   return (
     <AnimatePresence mode="wait">
