@@ -6,11 +6,8 @@ import { createRoom, joinRoom, getRoomState, startGame as apiStartGame } from '.
 interface GameContextProps {
   phase: GamePhase;
   players: Player[];
-<<<<<<< Updated upstream
-=======
   humanCount: number;
   maxHumans: number;
->>>>>>> Stashed changes
   mainPlayerId: string;
   chat: ChatMessage[];
   dayCount: number;
@@ -59,11 +56,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
-<<<<<<< Updated upstream
-=======
   const [humanCount, setHumanCount] = useState(0);
   const [maxHumans, setMaxHumans] = useState(5);
->>>>>>> Stashed changes
   
   const timerRef = useRef<number | null>(null);
   const botChatRef = useRef<number | null>(null);
@@ -391,10 +385,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           avatarId: 1 // временно
         }));
         setPlayers(newPlayers);
-<<<<<<< Updated upstream
-        // Если фаза изменилась (например, началась игра), обновляем phase
-        if (state.phase !== phase) {
-=======
         // Вычисляем количество людей (не ботов)
         const humanCount = newPlayers.filter(p => !p.isAI).length;
         setHumanCount(humanCount);
@@ -407,7 +397,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (phase === 'night' && state.phase === 'day') {
             setDayCount(prev => prev + 1);
           }
->>>>>>> Stashed changes
           setPhase(state.phase as GamePhase);
         }
       } catch (error) {
@@ -428,11 +417,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <GameContext.Provider value={{
-<<<<<<< Updated upstream
-      phase, players, mainPlayerId: MAIN_USER_ID, chat, dayCount, settings, timer,
-=======
       phase, players, humanCount, maxHumans, mainPlayerId: MAIN_USER_ID, chat, dayCount, settings, timer,
->>>>>>> Stashed changes
       eliminatedPlayer, winner, turingStats, myPlayer,
       roomCode, playerId, isHost,
       setSettings, initializeGame, startLobby, joinLobby, startGameFromLobby, nextPhase,

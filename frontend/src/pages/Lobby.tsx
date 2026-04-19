@@ -163,11 +163,7 @@ export const Lobby = () => {
               Игроки в лобби
             </h3>
             <span className="bg-neutral-800 text-neutral-300 text-xs px-2 py-1 rounded-full">
-<<<<<<< Updated upstream
-              {players.length} / 5+
-=======
               {players.length} / {settings.totalPlayers}
->>>>>>> Stashed changes
             </span>
           </div>
           
@@ -180,11 +176,7 @@ export const Lobby = () => {
                 className="bg-black border border-neutral-800 rounded-xl p-3 flex items-center"
               >
                 <div className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 mr-4">
-<<<<<<< Updated upstream
-                  {p.isAI ? <Bot size={20} /> : <User size={20} />}
-=======
                   <User size={20} />
->>>>>>> Stashed changes
                 </div>
                 <div>
                   <div className="font-medium text-white">{p.name} {p.id === playerId && "(Вы)"}</div>
