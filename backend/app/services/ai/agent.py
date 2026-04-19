@@ -60,6 +60,34 @@ class MafiaAIAgent:
         self.context.add_message(self.name, response, "day")
         return response
 
+    async def generate_night_chat_message(self) -> str:
+        """Генерация сообщения для ночного чата мафии (координация)."""
+        self._ensure_context()
+        # Только мафия может видеть ночной чат
+        if self.role != Role.MAFIA:
+            return ""
+        system_prompt = self._get_system_prompt() + " Сейчас НОЧЬ. Ты общаешься только со своей командой мафии. " \
+                     "Обсудите, кого убить этой ночью. Будь кратким и конкретным."
+        # Включаем ночные сообщения в историю
+        chat_history = self.context.get_filtered_chat_history(include_night=True)
+        # Добавляем информацию о подозрениях
+        suspicion_text = ""
+        if self.context.suspicions:
+            suspicion_lines = []
+            for player_id, suspicion in self.context.suspicions.items():
+                player_name = self.context.players_knowledge.get(player_id, {}).get("name", "unknown")
+                suspicion_lines.append(f"{player_name}: {suspicion:.1f}")
+            if suspicion_lines:
+                suspicion_text = "\nТвои подозрения (0 - мирный, 1 - мафия):\n" + "\n".join(suspicion_lines)
+        
+        prompt = f"Контекст ночного чата (видят только мафия):\n{chat_history}\n{suspicion_text}\n\n" \
+                 f"Напиши сообщение для обсуждения с напарниками:"
+        
+        response = await ai_service.get_response(prompt, system_prompt)
+        # Сохраняем сообщение в контекст с фазой "night"
+        self.context.add_message(self.name, response, "night")
+        return response
+
     async def make_night_action(self) -> str:
         """Логика выбора цели ночью (для мафии, доктора, комиссара) на основе контекста."""
         self._ensure_context()
@@ -101,6 +129,25 @@ class MafiaAIAgent:
                 return target['player_id']
 
         # Если не нашли, выбираем случайного из целей
+        return random.choice(targets)['player_id']
+    
+    async def decide_vote(self) -> str:
+        """Принять решение за кого голосовать (исключить) на основе подозрений."""
+        self._ensure_context()
+        players_info = self.context.get_public_player_info()
+        # Исключаем себя и мертвых
+        targets = [p for p in players_info if p['player_id'] != self.player_id and p['is_alive']]
+        if not targets:
+            return ""
+        
+        # Если есть подозрения, выбираем игрока с максимальным подозрением
+        if self.context.suspicions:
+            # Сортируем по подозрению (убывание)
+            sorted_targets = sorted(targets, key=lambda p: self.context.suspicions.get(p['player_id'], 0.5), reverse=True)
+            # Берем первого (наибольшее подозрение)
+            return sorted_targets[0]['player_id']
+        
+        # Иначе случайный выбор
         return random.choice(targets)['player_id']
     
     def update_context_with_message(self, sender_name: str, text: str, phase: str):

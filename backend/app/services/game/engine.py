@@ -9,9 +9,10 @@ from collections import Counter
 
 class GamePhase(Enum):
     LOBBY = "lobby"
-    NIGHT = "night"
+    INDIVIDUAL_DAY = "individual_day"
     DAY = "day"
     VOTING = "voting"
+    NIGHT = "night"
     GAME_OVER = "game_over"
 
 
@@ -87,6 +88,12 @@ class MafiaEngine:
         self.start_time = datetime.now()
         self.game_log: list[str] = []
 
+        # Индивидуальные таймеры дня
+        self.individual_player_order: List[str] = []  # порядок игроков для индивидуальных высказываний
+        self.current_player_index: int = 0  # индекс текущего игрока в порядке
+        self.individual_timer_start: Optional[datetime] = None  # время начала таймера для текущего игрока
+        self.individual_timer_duration: int = 30  # секунд на игрока
+
     def add_player(self, player: Player):
         self.players[player.player_id] = player
 
@@ -159,26 +166,41 @@ class MafiaEngine:
         for i in range(start_citizen_idx, len(alive_players)):
             alive_players[i].assign_role(Role.CITIZEN)
 
+    def _init_individual_order(self):
+        """Инициализирует порядок игроков для индивидуальных высказываний."""
+        alive_players = [p for p in self.players.values() if p.is_alive]
+        # Перемешиваем порядок для случайности
+        import random
+        player_ids = [p.player_id for p in alive_players]
+        random.shuffle(player_ids)
+        self.individual_player_order = player_ids
+        self.current_player_index = 0
+        self.individual_timer_start = datetime.now()
+
+    def _next_player(self) -> bool:
+        """Переход к следующему игроку. Возвращает True, если есть ещё игроки, иначе False."""
+        self.current_player_index += 1
+        if self.current_player_index >= len(self.individual_player_order):
+            return False
+        self.individual_timer_start = datetime.now()
+        return True
+
     def switch_phase(self) -> GamePhase:
         """Логика переключения фаз игры."""
         if self.current_phase == GamePhase.LOBBY:
             if len(self.players) < 1:
                 return self.current_phase
-<<<<<<< Updated upstream
-            self.current_phase = GamePhase.NIGHT
+            self.current_phase = GamePhase.INDIVIDUAL_DAY
             self.assign_roles()
+            self._init_individual_order()
 
-        elif self.current_phase == GamePhase.NIGHT:
-            # Применяем ночные действия перед днём
-            self._resolve_mafia_vote()
-            self.apply_night_actions()
+        elif self.current_phase == GamePhase.INDIVIDUAL_DAY:
+            # Если ещё есть игроки в очереди, переходим к следующему (это должно обрабатываться отдельным таймером)
+            # Здесь просто переходим к общему дню, когда все высказались
             self.current_phase = GamePhase.DAY
-            # Сбрасываем временные данные ночи
-            self.clear_night_actions()
-=======
-            self.current_phase = GamePhase.DAY
-            self.assign_roles()
->>>>>>> Stashed changes
+            # Сбрасываем порядок
+            self.individual_player_order = []
+            self.current_player_index = 0
 
         elif self.current_phase == GamePhase.DAY:
             self.current_phase = GamePhase.VOTING
@@ -196,17 +218,15 @@ class MafiaEngine:
                 self.vote_results.clear()
                 self.eliminated_player = None
 
-<<<<<<< Updated upstream
-=======
         elif self.current_phase == GamePhase.NIGHT:
             # Применяем ночные действия перед днём
             self._resolve_mafia_vote()
             self.apply_night_actions()
-            self.current_phase = GamePhase.DAY
-            # Сбрасываем временные данные ночи
+            self.current_phase = GamePhase.INDIVIDUAL_DAY
+            # Сбрасываем временные данных ночи
             self.clear_night_actions()
+            self._init_individual_order()
 
->>>>>>> Stashed changes
         return self.current_phase
 
     def clear_night_actions(self):
@@ -288,6 +308,36 @@ class MafiaEngine:
             self.doctor.last_saved_self = (
                 doctor_save == self.doctor.player_id)
 
+    def get_current_speaker_id(self) -> Optional[str]:
+        """Возвращает ID игрока, который сейчас должен говорить в INDIVIDUAL_DAY."""
+        if self.current_phase != GamePhase.INDIVIDUAL_DAY:
+            return None
+        if not self.individual_player_order or self.current_player_index >= len(self.individual_player_order):
+            return None
+        return self.individual_player_order[self.current_player_index]
+
+    def can_send_chat(self, player_id: str) -> bool:
+        """Проверяет, может ли игрок отправить сообщение в чат в текущей фазе."""
+        if self.current_phase == GamePhase.INDIVIDUAL_DAY:
+            return player_id == self.get_current_speaker_id()
+        elif self.current_phase in (GamePhase.DAY, GamePhase.VOTING):
+            player = self.players.get(player_id)
+            return player is not None and player.is_alive
+        elif self.current_phase == GamePhase.NIGHT:
+            player = self.players.get(player_id)
+            return player is not None and player.is_alive and player.role == Role.MAFIA
+        else:
+            return False
+
+    def add_day_message(self, sender_id: str, sender_name: str, text: str):
+        """Добавить сообщение в дневной чат."""
+        self.day_chat.append({
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "text": text,
+            "timestamp": datetime.now().isoformat()
+        })
+
     def add_night_message(self, sender_id: str, sender_name: str, text: str):
         """Добавить сообщение в ночной чат."""
         self.night_chat.append({
@@ -321,12 +371,20 @@ class MafiaEngine:
             max_votes = max(self.vote_results.values())
             candidates = [tid for tid,
                           cnt in self.vote_results.items() if cnt == max_votes]
-            eliminated_id = random.choice(candidates)
-
-            self.eliminated_player = self.players[eliminated_id]
-            self.eliminated_player.is_alive = False
-            if self.eliminated_player in self.mafia_group:
-                self.mafia_group.remove(self.eliminated_player)
+            # Выбывают все кандидаты с максимальным числом голосов
+            eliminated_ids = candidates
+            # Сохраняем первого выбывшего для обратной совместимости (eliminated_player)
+            first_eliminated = eliminated_ids[0] if eliminated_ids else None
+            for eliminated_id in eliminated_ids:
+                player = self.players.get(eliminated_id)
+                if player and player.is_alive:
+                    player.is_alive = False
+                    if player in self.mafia_group:
+                        self.mafia_group.remove(player)
+            if first_eliminated:
+                self.eliminated_player = self.players[first_eliminated]
+            else:
+                self.eliminated_player = None
 
     # Проверка завершения игры
     def check_game_over(self) -> bool:
@@ -361,8 +419,4 @@ class MafiaEngine:
         }
 
 
-<<<<<<< Updated upstream
 game_engine = MafiaEngine()
-=======
-game_engine = MafiaEngine()
->>>>>>> Stashed changes

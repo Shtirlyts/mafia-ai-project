@@ -149,6 +149,9 @@ async def run_game_loop(room_code: str, engine: MafiaEngine) -> None:
         while engine.current_phase != GamePhase.GAME_OVER:
             settings = room_manager.get_settings(room_code)
             phase_durations = {
+                GamePhase.INDIVIDUAL_DAY: (
+                    settings.individual_duration_seconds if settings else 30
+                ),
                 GamePhase.NIGHT: (
                     settings.night_duration_seconds if settings else 20
                 ),
@@ -170,14 +173,32 @@ async def run_game_loop(room_code: str, engine: MafiaEngine) -> None:
                 })
                 await asyncio.sleep(duration)
 
-            new_phase = engine.switch_phase()
+            # Особый обработчик для INDIVIDUAL_DAY
+            if engine.current_phase == GamePhase.INDIVIDUAL_DAY:
+                # Переход к следующему игроку
+                has_next = engine._next_player()
+                if not has_next:
+                    # Все игроки высказались, переходим к общему дню
+                    new_phase = engine.switch_phase()
+                else:
+                    # Остались игроки, продолжаем индивидуальную фазу
+                    # Рассылаем обновление состояния с новым текущим игроком
+                    await broadcast_full_state(room_code, engine)
+                    continue
+            else:
+                new_phase = engine.switch_phase()
 
             if new_phase == GamePhase.NIGHT:
                 await process_ai_night_actions(room_code, engine)
                 # После выполнения действий AI, возможно, кто-то ещё живые игроки должны сделать ход,
                 # но у нас таймер уже идёт, поэтому просто рассылаем состояние
+                await broadcast_full_state(room_code, engine)
             elif new_phase == GamePhase.DAY:
                 await process_ai_day_messages(room_code, engine)
+                await broadcast_full_state(room_code, engine)
+            elif new_phase == GamePhase.VOTING:
+                await process_ai_votes(room_code, engine)
+                await broadcast_full_state(room_code, engine)
             elif new_phase == GamePhase.GAME_OVER:
                 await broadcast_full_state(room_code, engine)
                 break
@@ -197,7 +218,23 @@ async def process_ai_night_actions(room_code: str, engine: MafiaEngine) -> None:
     """AI-агенты выполняют ночные действия с использованием индивидуального контекста."""
     # Обновляем контексты всех агентов текущим состоянием игры
     context_manager.update_from_game_state(room_code, engine)
+    # Синхронизируем историю чата с фильтрацией по ролям (чтобы мафия видела ночной чат)
+    context_manager.sync_filtered_chat_history(room_code, engine)
     
+    # Сначала генерируем ночные сообщения для мафии (координация)
+    for player in engine.players.values():
+        if player.is_ai and player.is_alive and player.role == Role.MAFIA:
+            agent = MafiaAIAgent(player.player_id, player.name, player.role, room_code)
+            message_text = await agent.generate_night_chat_message()
+            if message_text:
+                # Добавляем сообщение в ночной чат
+                engine.add_night_message(player.player_id, player.name, message_text)
+                logger.info(f"Мафия {player.name} сказала в ночном чате: {message_text}")
+                # Рассылаем сообщение только мафии (через broadcast_full_state позже)
+                # Можно отправить персональное уведомление, но пока просто добавим в чат
+                await asyncio.sleep(1)  # небольшая пауза между сообщениями
+    
+    # Затем выполняем ночные действия (голосование мафии, проверка комиссара, защита доктора)
     for player in engine.players.values():
         if player.is_ai and player.is_alive:
             if player.role is None:
@@ -249,6 +286,29 @@ async def process_ai_day_messages(room_code: str, engine: MafiaEngine) -> None:
                 "phase": engine.current_phase.value
             })
             await asyncio.sleep(2)
+
+async def process_ai_votes(room_code: str, engine: MafiaEngine) -> None:
+    """AI-агенты голосуют за исключение игрока в фазе VOTING."""
+    # Синхронизируем состояние игры и историю чата с фильтрацией по ролям
+    context_manager.update_from_game_state(room_code, engine)
+    context_manager.sync_filtered_chat_history(room_code, engine)
+    
+    # Голосование каждого AI
+    for player in engine.players.values():
+        if player.is_ai and player.is_alive:
+            if player.role is None:
+                continue
+            agent = MafiaAIAgent(player.player_id, player.name, player.role, room_code)
+            target_id = await agent.decide_vote()
+            if target_id:
+                success = engine.submit_vote(player.player_id, target_id)
+                if success:
+                    logger.info(f"AI {player.name} проголосовал за {target_id}")
+                    # Можно отправить уведомление в чат о голосе (опционально)
+                    # await manager.broadcast(...)
+                else:
+                    logger.warning(f"AI {player.name} не смог проголосовать за {target_id}")
+            await asyncio.sleep(1)  # небольшая задержка между голосами
 
 
 async def broadcast_full_state(room_code: str, engine: MafiaEngine) -> None:
@@ -332,8 +392,17 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, client_id: st
                         text
                         and player is not None
                         and player.is_alive
-                        and engine.current_phase in (GamePhase.DAY, GamePhase.VOTING)
+                        and engine.can_send_chat(client_id)
                     ):
+                        # Добавляем сообщение в соответствующий чат
+                        if engine.current_phase == GamePhase.INDIVIDUAL_DAY:
+                            engine.add_day_message(client_id, player.name, text)
+                        elif engine.current_phase == GamePhase.DAY:
+                            engine.add_day_message(client_id, player.name, text)
+                        elif engine.current_phase == GamePhase.VOTING:
+                            engine.add_day_message(client_id, player.name, text)
+                        elif engine.current_phase == GamePhase.NIGHT:
+                            engine.add_night_message(client_id, player.name, text)
                         engine.game_log.append(f"{player.name}: {text}")
                         await manager.broadcast(room_code, {
                             "type": "chat",

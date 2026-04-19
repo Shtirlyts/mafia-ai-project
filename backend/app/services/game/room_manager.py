@@ -23,6 +23,7 @@ class RoomSettings(BaseModel):
     night_duration_seconds: int = 20
     day_duration_seconds: int = 60
     voting_duration_seconds: int = 30
+    individual_duration_seconds: int = 30  # время на игрока в INDIVIDUAL_DAY
 
 
 class RoomManager:
