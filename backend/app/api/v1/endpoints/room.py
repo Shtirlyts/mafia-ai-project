@@ -1,6 +1,10 @@
 from typing import Optional
 
+<<<<<<< Updated upstream
 from fastapi import APIRouter, HTTPException, status
+=======
+from fastapi import APIRouter, HTTPException, status, Body
+>>>>>>> Stashed changes
 from pydantic import BaseModel
 from app.schemas.game_state import PlayerSchema
 from app.services.game.room_manager import GameMode, RoomSettings, room_manager
@@ -15,6 +19,12 @@ router = APIRouter()
 
 def _serialize_players(engine: MafiaEngine) -> list[PlayerSchema]:
     players = engine.players.values()
+<<<<<<< Updated upstream
+=======
+    # В лобби не показываем ботов
+    if engine.current_phase == GamePhase.LOBBY:
+        players = [p for p in players if not p.is_ai]
+>>>>>>> Stashed changes
     return [PlayerSchema.model_validate(p.to_dict(reveal_role=False, reveal_ai=False)) for p in players]
 
 
