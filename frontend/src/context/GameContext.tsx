@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Player, Role, GamePhase, GameSettings, ChatMessage, Vote, GameMode } from '../types';
 import { getRandomName, getRandomPhrase, getRandomDefense } from '../utils/mockData';
+import { createRoom, joinRoom, getRoomState, startGame as apiStartGame } from '../api/client';
 
 interface GameContextProps {
   phase: GamePhase;
@@ -13,9 +14,14 @@ interface GameContextProps {
   eliminatedPlayer: Player | null;
   winner: 'mafia' | 'villagers' | null;
   turingStats: any;
+  roomCode: string | null;
+  playerId: string | null;
+  isHost: boolean;
   setSettings: (s: GameSettings) => void;
   initializeGame: (mode: GameMode, totalPlayers: number, settings: any) => void;
-  startGameFromLobby: () => void;
+  startLobby: (playerName: string, settings?: any) => Promise<void>;
+  joinLobby: (roomCode: string, playerName: string) => Promise<void>;
+  startGameFromLobby: () => Promise<void>;
   nextPhase: () => void;
   submitNightAction: (targetId: string) => void;
   submitVote: (targetId: string) => void;
@@ -45,9 +51,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [nightActions, setNightActions] = useState<Record<string, string>>({});
   const [votes, setVotes] = useState<Vote[]>([]);
   const [turingStats, setTuringStats] = useState<any>(null);
+  const [roomCode, setRoomCode] = useState<string | null>(null);
+  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState<boolean>(false);
   
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const botChatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const botChatRef = useRef<number | null>(null);
+  const pollingRef = useRef<number | null>(null);
 
   const myPlayer = players.find(p => p.id === MAIN_USER_ID);
 
@@ -71,7 +81,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const botsToCreate = mode === 'ai_only' ? totalPlayers : totalPlayers - 1;
     for (let i = 0; i < botsToCreate; i++) {
-      const name = getRandomName(usedNames);
+      const name = getRandomName(usedNames) || `Бот ${i}`;
       usedNames.push(name);
       newPlayers.push({
         id: `bot-${i}`, name, role: 'villager', isAI: true, isAlive: true, avatarId: (i % 5) + 2
@@ -79,20 +89,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setPlayers(newPlayers);
     addChatMessage(`Лобби создано. Ожидание игроков...`, true);
-  };
-
-  const startGameFromLobby = () => {
-    const roles: Role[] = [];
-    for (let i = 0; i < settings.roles.mafia; i++) roles.push('mafia');
-    for (let i = 0; i < settings.roles.detective; i++) roles.push('detective');
-    for (let i = 0; i < settings.roles.doctor; i++) roles.push('doctor');
-    
-    while (roles.length < players.length) roles.push('villager');
-    roles.sort(() => Math.random() - 0.5);
-
-    setPlayers(players.map((p, i) => ({ ...p, role: roles[i] })));
-    setPhase('reveal');
-    setChat([]);
   };
 
   const startNight = () => {
@@ -204,7 +200,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTimeout(() => {
       const botVotes = aliveBots.map(bot => {
          const t = aliveTargets[Math.floor(Math.random() * aliveTargets.length)];
-         return { voterId: bot.id, targetId: t?.id };
+         return { voterId: bot.id, targetId: t.id };
       });
       setVotes(prev => {
          // keep user vote if exists
@@ -313,10 +309,95 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // other manual transitions can go here if needed
   };
 
+  // API интеграция
+  const startLobby = async (playerName: string, settings?: any) => {
+    try {
+      const response = await createRoom({
+        player_name: playerName,
+        mode: (settings?.mode?.toLowerCase() as 'humans_only' | 'mixed' | 'ai_only') || 'mixed',
+        ai_count: settings?.aiCount || 2,
+        max_players: settings?.totalPlayers || 8
+      });
+      setRoomCode(response.room_code);
+      setPlayerId(response.player_id);
+      setIsHost(true);
+      setPhase('lobby');
+      // Начинаем polling
+      startPolling(response.room_code);
+      addChatMessage(`Лобби создано. Код комнаты: ${response.room_code}`, true);
+    } catch (error) {
+      console.error('Ошибка создания лобби:', error);
+      addChatMessage('Не удалось создать лобби', true);
+    }
+  };
+
+  const joinLobby = async (roomCode: string, playerName: string) => {
+    try {
+      const response = await joinRoom({
+        room_code: roomCode,
+        player_name: playerName
+      });
+      setRoomCode(roomCode);
+      setPlayerId(response.player_id);
+      setIsHost(false);
+      setPhase('lobby');
+      // Начинаем polling
+      startPolling(roomCode);
+      addChatMessage(`Вы присоединились к лобби ${roomCode}`, true);
+    } catch (error) {
+      console.error('Ошибка присоединения к лобби:', error);
+      addChatMessage('Не удалось присоединиться к лобби', true);
+    }
+  };
+
+  const startGameFromLobby = async () => {
+    if (!roomCode || !playerId) {
+      addChatMessage('Не удалось начать игру: отсутствует код комнаты или ID игрока', true);
+      return;
+    }
+    try {
+      await apiStartGame(roomCode, playerId);
+      // После успешного старта игра переходит в фазу reveal (или night) через polling
+      addChatMessage('Игра началась!', true);
+    } catch (error) {
+      console.error('Ошибка старта игры:', error);
+      addChatMessage('Не удалось начать игру', true);
+    }
+  };
+
+  // Polling для обновления состояния лобби
+  const startPolling = (roomCode: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    const fetchState = async () => {
+      try {
+        const state = await getRoomState(roomCode);
+        // Обновляем список игроков
+        const newPlayers: Player[] = state.players.map((p: any) => ({
+          id: p.player_id,
+          name: p.name,
+          role: p.role || 'villager',
+          isAI: p.is_ai ?? false,
+          isAlive: p.is_alive,
+          avatarId: 1 // временно
+        }));
+        setPlayers(newPlayers);
+        // Если фаза изменилась (например, началась игра), обновляем phase
+        if (state.phase !== phase) {
+          setPhase(state.phase as GamePhase);
+        }
+      } catch (error) {
+        console.error('Ошибка polling:', error);
+      }
+    };
+    fetchState(); // сразу запросить
+    pollingRef.current = setInterval(fetchState, 5000); // каждые 5 секунд
+  };
+
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (botChatRef.current) clearInterval(botChatRef.current);
+      if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, []);
 
@@ -324,7 +405,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <GameContext.Provider value={{
       phase, players, mainPlayerId: MAIN_USER_ID, chat, dayCount, settings, timer,
       eliminatedPlayer, winner, turingStats, myPlayer,
-      setSettings, initializeGame, startGameFromLobby, nextPhase,
+      roomCode, playerId, isHost,
+      setSettings, initializeGame, startLobby, joinLobby, startGameFromLobby, nextPhase,
       submitNightAction, submitVote, addChatMessage, submitTuringTest
     }}>
       {children}
