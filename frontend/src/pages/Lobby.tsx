@@ -1,18 +1,15 @@
 import React, { useState } from 'react';
 import { useGame } from '@/context/GameContext';
-<<<<<<< Updated upstream
-import { Users, Link as LinkIcon, User, Play } from 'lucide-react';
-=======
 import { Users, Link as LinkIcon, Bot, User, Play } from 'lucide-react';
->>>>>>> Stashed changes
 import { motion } from 'motion/react';
 
 export const Lobby = () => {
-  const { startLobby, joinLobby, startGameFromLobby, players, settings, roomCode, playerId, isHost } = useGame();
+  const { startLobby, joinLobby, startGameFromLobby, players, settings, roomCode, playerId, isHost, phase } = useGame();
   const [name, setName] = useState('');
   const [joinRoomCode, setJoinRoomCode] = useState('');
 
   const isJoined = playerId !== null;
+  const isLobbyPhase = phase === 'lobby';
 
   const handleCreateLobby = (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,7 +122,7 @@ export const Lobby = () => {
               </button>
             </div>
 
-            {isHost && (
+            {isHost && isLobbyPhase && (
               <button
                 onClick={startGameFromLobby}
                 className="w-full flex items-center justify-center space-x-2 bg-white text-black font-bold rounded-xl py-4 hover:bg-neutral-200 transition-colors"
@@ -133,6 +130,11 @@ export const Lobby = () => {
                 <Play size={20} />
                 <span>Начать игру (Автозаполнение AI)</span>
               </button>
+            )}
+            {isHost && !isLobbyPhase && (
+              <div className="text-center text-neutral-400 text-sm py-2">
+                Игра уже началась. Дождитесь следующей фазы.
+              </div>
             )}
             {!isHost && (
               <div className="text-center text-neutral-400 text-sm py-2">

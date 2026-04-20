@@ -11,11 +11,8 @@ import { GameProvider, useGame } from "@/context/GameContext";
 
 const GameRouter = () => {
   const { phase } = useGame();
-<<<<<<< Updated upstream
-=======
 
   console.log("phase:", phase);
->>>>>>> Stashed changes
   
   return (
     <AnimatePresence mode="wait">
@@ -23,7 +20,7 @@ const GameRouter = () => {
       {phase === 'lobby' && <Lobby key="lobby" />}
       {phase === 'reveal' && <RoleReveal key="reveal" />}
       {phase === 'night' && <NightPhase key="night" />}
-      {phase === 'day' && <DayPhase key="day" />}
+      {(phase === 'day' || phase === 'individual_day') && <DayPhase key="day" />}
       {phase === 'voting' && <VotingPhase key="voting" />}
       {phase === 'elimination' && <EliminationScreen key="elimination" />}
       {(phase === 'game_over' || phase === 'stats') && <GameOver key="game_over" />}

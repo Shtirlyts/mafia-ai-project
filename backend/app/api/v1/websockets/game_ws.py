@@ -165,44 +165,56 @@ async def run_game_loop(room_code: str, engine: MafiaEngine) -> None:
                 GamePhase.GAME_OVER: 0
             }
             duration = phase_durations.get(engine.current_phase, 0)
+            logger.info(f"Room {room_code}: current_phase={engine.current_phase.value}, duration={duration}")
             if duration > 0:
                 await manager.broadcast(room_code, {
                     "type": "phase_change",
                     "phase": engine.current_phase.value,
                     "duration": duration
                 })
+                logger.info(f"Room {room_code}: broadcast phase_change, sleeping {duration}s")
                 await asyncio.sleep(duration)
 
             # Особый обработчик для INDIVIDUAL_DAY
             if engine.current_phase == GamePhase.INDIVIDUAL_DAY:
                 # Переход к следующему игроку
+                logger.info(f"Room {room_code}: INDIVIDUAL_DAY, calling _next_player")
                 has_next = engine._next_player()
+                logger.info(f"Room {room_code}: _next_player returned {has_next}")
                 if not has_next:
                     # Все игроки высказались, переходим к общему дню
+                    logger.info(f"Room {room_code}: no more players, switching phase")
                     new_phase = engine.switch_phase()
                 else:
                     # Остались игроки, продолжаем индивидуальную фазу
                     # Рассылаем обновление состояния с новым текущим игроком
+                    logger.info(f"Room {room_code}: still players left, broadcasting state")
                     await broadcast_full_state(room_code, engine)
                     continue
             else:
                 new_phase = engine.switch_phase()
 
+            logger.info(f"Room {room_code}: switched to new_phase={new_phase}")
             if new_phase == GamePhase.NIGHT:
+                logger.info(f"Room {room_code}: processing AI night actions")
                 await process_ai_night_actions(room_code, engine)
                 # После выполнения действий AI, возможно, кто-то ещё живые игроки должны сделать ход,
                 # но у нас таймер уже идёт, поэтому просто рассылаем состояние
                 await broadcast_full_state(room_code, engine)
             elif new_phase == GamePhase.DAY:
+                logger.info(f"Room {room_code}: processing AI day messages")
                 await process_ai_day_messages(room_code, engine)
                 await broadcast_full_state(room_code, engine)
             elif new_phase == GamePhase.VOTING:
+                logger.info(f"Room {room_code}: processing AI votes")
                 await process_ai_votes(room_code, engine)
                 await broadcast_full_state(room_code, engine)
             elif new_phase == GamePhase.GAME_OVER:
+                logger.info(f"Room {room_code}: game over")
                 await broadcast_full_state(room_code, engine)
                 break
             else:
+                logger.info(f"Room {room_code}: other phase, broadcasting state")
                 await broadcast_full_state(room_code, engine)
 
     except asyncio.CancelledError:
@@ -259,6 +271,7 @@ async def process_ai_night_actions(room_code: str, engine: MafiaEngine) -> None:
 
 async def process_ai_day_messages(room_code: str, engine: MafiaEngine) -> None:
     """Генерация дневных сообщений от AI с использованием индивидуального контекста."""
+    logger.info(f"process_ai_day_messages called for room {room_code}, phase {engine.current_phase}")
     # Синхронизируем состояние игры и историю чата с фильтрацией по ролям
     context_manager.update_from_game_state(room_code, engine)
     context_manager.sync_filtered_chat_history(room_code, engine)
@@ -268,8 +281,10 @@ async def process_ai_day_messages(room_code: str, engine: MafiaEngine) -> None:
         if player.is_ai and player.is_alive:
             if player.role is None:
                 continue
+            logger.info(f"Generating day message for AI {player.name} ({player.role})")
             agent = MafiaAIAgent(player.player_id, player.name, player.role, room_code)
             message_text = await agent.generate_chat_message()
+            logger.info(f"AI {player.name} generated message: {message_text}")
             engine.game_log.append(f"{player.name}: {message_text}")
             # Также добавляем сгенерированное сообщение в day_chat для будущей синхронизации
             engine.day_chat.append({

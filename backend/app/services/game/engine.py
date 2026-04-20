@@ -179,10 +179,15 @@ class MafiaEngine:
 
     def _next_player(self) -> bool:
         """Переход к следующему игроку. Возвращает True, если есть ещё игроки, иначе False."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"_next_player: current_index={self.current_player_index}, order_len={len(self.individual_player_order)}")
         self.current_player_index += 1
         if self.current_player_index >= len(self.individual_player_order):
+            logger.info(f"_next_player: no more players, returning False")
             return False
         self.individual_timer_start = datetime.now()
+        logger.info(f"_next_player: next player index={self.current_player_index}, returning True")
         return True
 
     def switch_phase(self) -> GamePhase:

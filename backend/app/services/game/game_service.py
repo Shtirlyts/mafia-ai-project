@@ -1,7 +1,10 @@
 import asyncio
+import logging
 
 from app.services.game.engine import GamePhase, MafiaEngine, Player
 from app.services.game.room_manager import GameMode, room_manager
+
+logger = logging.getLogger(__name__)
 
 
 class GameServiceError(Exception):
@@ -87,13 +90,17 @@ async def start_game(
             doctor=settings.doctor,
         )
         new_phase = engine.switch_phase()
+        logger.info(f"Game started in room {room_code}, new phase: {new_phase}")
 
         from app.api.v1.websockets import game_ws
 
         if room_code not in game_ws.room_tasks:
+            logger.info(f"Creating game loop task for room {room_code}")
             task = asyncio.create_task(
                 game_ws.run_game_loop(room_code, engine)
             )
             game_ws.room_tasks[room_code] = task
+        else:
+            logger.warning(f"Room {room_code} already has a game loop task")
 
         return engine, new_phase

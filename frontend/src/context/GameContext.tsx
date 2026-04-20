@@ -1,11 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-<<<<<<< Updated upstream
-import { Player, GamePhase, GameSettings, ChatMessage, Vote, GameMode } from '../types';
-=======
 import { Player, Role, GamePhase, GameSettings, ChatMessage, Vote, GameMode } from '../types';
->>>>>>> Stashed changes
 import { getRandomName, getRandomPhrase, getRandomDefense } from '../utils/mockData';
 import { createRoom, joinRoom, getRoomState, startGame as apiStartGame } from '../api/client';
+import { gameWebSocket, IncomingWSMessage, WSChatMessage, WSPhaseChangeMessage, WSStateUpdateMessage } from '../api/websocket';
 
 interface GameContextProps {
   phase: GamePhase;
@@ -70,7 +67,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const myPlayer = players.find(p => p.id === MAIN_USER_ID);
 
   const addChatMessage = (text: string, isSystem = false, senderId = 'system') => {
-    setChat(prev => [...prev, { id: Math.random().toString(36).substring(7), text, isSystem, senderId, timestamp: Date.now() }]);
+    // Добавляем сообщение в локальное состояние
+    const newMessage = { id: Math.random().toString(36).substring(7), text, isSystem, senderId, timestamp: Date.now() };
+    setChat(prev => [...prev, newMessage]);
+    
+    // Если это сообщение от пользователя (не системное) и WebSocket подключен, отправляем на сервер
+    if (!isSystem && senderId === MAIN_USER_ID && gameWebSocket.isConnected()) {
+      try {
+        gameWebSocket.send({
+          type: 'chat',
+          text: text
+        });
+        console.log('Chat message sent via WebSocket:', text);
+      } catch (error) {
+        console.error('Failed to send chat message via WebSocket:', error);
+      }
+    }
   };
 
   const initializeGame = (mode: GameMode, totalPlayers: number, roleSettings: any) => {
@@ -113,11 +125,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let targetPool = aliveTargets;
         if (bot.role === 'mafia') targetPool = aliveTargets.filter(p => p.role !== 'mafia');
         if (targetPool.length > 0) {
-<<<<<<< Updated upstream
-           botActions[bot.role] = targetPool[Math.floor(Math.random() * targetPool.length)]!.id;
-=======
            botActions[bot.role] = targetPool[Math.floor(Math.random() * targetPool.length)].id;
->>>>>>> Stashed changes
         }
       }
     });
@@ -177,11 +185,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (aliveBots.length > 0) {
       botChatRef.current = setInterval(() => {
         if (Math.random() > 0.4) {
-<<<<<<< Updated upstream
-          const bot = aliveBots[Math.floor(Math.random() * aliveBots.length)]!;
-=======
           const bot = aliveBots[Math.floor(Math.random() * aliveBots.length)];
->>>>>>> Stashed changes
           const targetPool = currentPlayers.filter(p => p.isAlive && p.id !== bot.id);
           const target = targetPool[Math.floor(Math.random() * targetPool.length)];
           if (target) {
@@ -215,11 +219,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Bots vote after 5 seconds
     setTimeout(() => {
       const botVotes = aliveBots.map(bot => {
-<<<<<<< Updated upstream
-         const t = aliveTargets[Math.floor(Math.random() * aliveTargets.length)]!;
-=======
          const t = aliveTargets[Math.floor(Math.random() * aliveTargets.length)];
->>>>>>> Stashed changes
          return { voterId: bot.id, targetId: t.id };
       });
       setVotes(prev => {
@@ -342,7 +342,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPlayerId(response.player_id);
       setIsHost(true);
       setPhase('lobby');
-      // Начинаем polling
+      
+      // Подключаемся к WebSocket
+      try {
+        await gameWebSocket.connect(response.room_code, response.player_id);
+        console.log('WebSocket connected successfully');
+        addChatMessage('Подключение к игре установлено (WebSocket)', true);
+      } catch (wsError) {
+        console.error('WebSocket connection failed, falling back to polling only:', wsError);
+        addChatMessage('WebSocket недоступен, используется polling', true);
+      }
+      
+      // Начинаем polling как fallback
       startPolling(response.room_code);
       addChatMessage(`Лобби создано. Код комнаты: ${response.room_code}`, true);
     } catch (error) {
@@ -361,7 +372,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPlayerId(response.player_id);
       setIsHost(false);
       setPhase('lobby');
-      // Начинаем polling
+      
+      // Подключаемся к WebSocket
+      try {
+        await gameWebSocket.connect(roomCode, response.player_id);
+        console.log('WebSocket connected successfully');
+        addChatMessage('Подключение к игре установлено (WebSocket)', true);
+      } catch (wsError) {
+        console.error('WebSocket connection failed, falling back to polling only:', wsError);
+        addChatMessage('WebSocket недоступен, используется polling', true);
+      }
+      
+      // Начинаем polling как fallback
       startPolling(roomCode);
       addChatMessage(`Вы присоединились к лобби ${roomCode}`, true);
     } catch (error) {
@@ -385,9 +407,123 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Polling для обновления состояния лобби
+  // Обработчик WebSocket сообщений
+  const handleWebSocketMessage = (message: IncomingWSMessage) => {
+    console.log('WebSocket message received in GameContext:', message);
+    
+    switch (message.type) {
+      case 'chat': {
+        console.log('WebSocket chat message received:', message);
+        // Добавляем сообщение в чат
+        const chatMessage: ChatMessage = {
+          id: Math.random().toString(36).substring(7),
+          text: message.text,
+          isSystem: false,
+          senderId: message.sender_id,
+          timestamp: message.timestamp ? new Date(message.timestamp).getTime() : Date.now()
+        };
+        console.log('Adding chat message:', chatMessage);
+        setChat(prev => {
+          console.log('Previous chat length:', prev.length);
+          return [...prev, chatMessage];
+        });
+        break;
+      }
+      
+      case 'phase_change': {
+        // Обновляем фазу и запускаем таймер
+        setPhase(message.phase as GamePhase);
+        // Увеличиваем счетчик дня при переходе от ночи к дню или individual_day
+        if (phase === 'night' && (message.phase === 'day' || message.phase === 'individual_day')) {
+          setDayCount(prev => prev + 1);
+        }
+        // Запускаем таймер на фронтенде
+        if (message.duration > 0) {
+          setTimer(message.duration);
+          if (timerRef.current) clearInterval(timerRef.current);
+          timerRef.current = setInterval(() => {
+            setTimer(prev => {
+              if (prev <= 1) {
+                if (timerRef.current) clearInterval(timerRef.current);
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        }
+        break;
+      }
+      
+      case 'state_update': {
+        // Полное обновление состояния игры
+        const { data } = message;
+        
+        // Обновляем игроков
+        const newPlayers: Player[] = data.players.map((p: any) => ({
+          id: p.player_id,
+          name: p.name,
+          role: p.role || 'villager',
+          isAI: p.is_ai ?? false,
+          isAlive: p.is_alive,
+          avatarId: p.avatar_id || 1
+        }));
+        setPlayers(newPlayers);
+        
+        // Обновляем фазу
+        if (data.phase !== phase) {
+          setPhase(data.phase as GamePhase);
+        }
+        
+        // Обновляем чат (объединяем day_chat и night_chat)
+        const allChatMessages: ChatMessage[] = [
+          ...(data.day_chat || []).map((msg: any) => ({
+            id: Math.random().toString(36).substring(7),
+            text: msg.text,
+            isSystem: false,
+            senderId: msg.sender_id,
+            timestamp: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now()
+          })),
+          ...(data.night_chat || []).map((msg: any) => ({
+            id: Math.random().toString(36).substring(7),
+            text: msg.text,
+            isSystem: false,
+            senderId: msg.sender_id,
+            timestamp: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now()
+          }))
+        ];
+        
+        // Оставляем только уникальные сообщения (по тексту и отправителю)
+        setChat(prev => {
+          const existingIds = new Set(prev.map(m => `${m.senderId}-${m.text}`));
+          const newMessages = allChatMessages.filter(
+            msg => !existingIds.has(`${msg.senderId}-${msg.text}`)
+          );
+          return [...prev, ...newMessages];
+        });
+        
+        // Обновляем победителя
+        if (data.winner) {
+          setWinner(data.winner as 'mafia' | 'villagers');
+        }
+        
+        // Обновляем исключенного игрока
+        if (data.eliminated_player) {
+          const eliminated = newPlayers.find(p => p.id === data.eliminated_player);
+          setEliminatedPlayer(eliminated || null);
+        }
+        
+        break;
+      }
+      
+      default:
+        console.warn('Unhandled WebSocket message type:', (message as any).type);
+    }
+  };
+
+  // Polling для обновления состояния лобби (гибридный подход)
   const startPolling = (roomCode: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
+    
     const fetchState = async () => {
       try {
         const state = await getRoomState(roomCode);
@@ -409,8 +545,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setMaxHumans(maxHumans);
         // Если фаза изменилась (например, началась игра), обновляем phase
         if (state.phase !== phase) {
-          // Увеличиваем счетчик дня при переходе от ночи к дню
-          if (phase === 'night' && state.phase === 'day') {
+          // Увеличиваем счетчик дня при переходе от ночи к дню или individual_day
+          if (phase === 'night' && (state.phase === 'day' || state.phase === 'individual_day')) {
             setDayCount(prev => prev + 1);
           }
           setPhase(state.phase as GamePhase);
@@ -419,15 +555,84 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Ошибка polling:', error);
       }
     };
+    
     fetchState(); // сразу запросить
-    pollingRef.current = setInterval(fetchState, 5000); // каждые 5 секунд
+    
+    // Определяем интервал polling в зависимости от состояния WebSocket
+    const pollingInterval = gameWebSocket.isConnected() ? 30000 : 5000; // 30 секунд если WebSocket подключен, иначе 5 секунд
+    console.log(`Starting polling with interval ${pollingInterval}ms (WebSocket connected: ${gameWebSocket.isConnected()})`);
+    pollingRef.current = setInterval(fetchState, pollingInterval);
   };
 
+  // Регистрация обработчика WebSocket сообщений
+  useEffect(() => {
+    gameWebSocket.addMessageHandler(handleWebSocketMessage);
+    
+    return () => {
+      gameWebSocket.removeMessageHandler(handleWebSocketMessage);
+    };
+  }, []);
+
+  // Обновление интервала polling при изменении состояния WebSocket соединения
+  useEffect(() => {
+    if (!roomCode) return;
+    
+    const updatePollingInterval = () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        const pollingInterval = gameWebSocket.isConnected() ? 30000 : 5000;
+        console.log(`Updating polling interval to ${pollingInterval}ms (WebSocket connected: ${gameWebSocket.isConnected()})`);
+        
+        const fetchState = async () => {
+          try {
+            const state = await getRoomState(roomCode);
+            // Обновляем список игроков
+            const newPlayers: Player[] = state.players.map((p: any) => ({
+              id: p.player_id,
+              name: p.name,
+              role: p.role || 'villager',
+              isAI: p.is_ai ?? false,
+              isAlive: p.is_alive,
+              avatarId: 1
+            }));
+            setPlayers(newPlayers);
+            const humanCount = newPlayers.filter(p => !p.isAI).length;
+            setHumanCount(humanCount);
+            const maxHumans = settings.totalPlayers;
+            setMaxHumans(maxHumans);
+            if (state.phase !== phase) {
+              if (phase === 'night' && (state.phase === 'day' || state.phase === 'individual_day')) {
+                setDayCount(prev => prev + 1);
+              }
+              setPhase(state.phase as GamePhase);
+            }
+          } catch (error) {
+            console.error('Ошибка polling:', error);
+          }
+        };
+        
+        fetchState();
+        pollingRef.current = setInterval(fetchState, pollingInterval);
+      }
+    };
+    
+    // Обновляем интервал при изменении состояния WebSocket
+    const checkInterval = setInterval(() => {
+      updatePollingInterval();
+    }, 5000); // Проверяем каждые 5 секунд
+    
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, [roomCode, phase, settings.totalPlayers]);
+
+  // Очистка таймеров и WebSocket при размонтировании
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (botChatRef.current) clearInterval(botChatRef.current);
       if (pollingRef.current) clearInterval(pollingRef.current);
+      gameWebSocket.disconnect();
     };
   }, []);
 
@@ -448,8 +653,4 @@ export const useGame = () => {
   const context = useContext(GameContext);
   if (!context) throw new Error("useGame must be used within Provider");
   return context;
-<<<<<<< Updated upstream
 };
-=======
-};
->>>>>>> Stashed changes

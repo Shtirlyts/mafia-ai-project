@@ -1,5 +1,5 @@
 export type Role = 'villager' | 'mafia' | 'detective' | 'doctor';
-export type GamePhase = 'menu' | 'lobby' | 'reveal' | 'night' | 'day' | 'voting' | 'elimination' | 'game_over' | 'turing_test' | 'stats';
+export type GamePhase = 'menu' | 'lobby' | 'reveal' | 'night' | 'individual_day' | 'day' | 'voting' | 'elimination' | 'game_over' | 'turing_test' | 'stats';
 export type GameMode = 'mixed' | 'ai_only' | 'human_only';
 
 export interface Player {

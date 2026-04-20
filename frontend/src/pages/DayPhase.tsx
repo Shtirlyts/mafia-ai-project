@@ -11,6 +11,10 @@ export const DayPhase = () => {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    console.log('DayPhase chat updated:', chat.length, 'messages');
+    if (chat.length > 0) {
+      console.log('Last message:', chat[chat.length - 1]);
+    }
   }, [chat]);
 
   const handleSend = (e: React.FormEvent) => {
